@@ -1,0 +1,439 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { useBranch } from '@/context/BranchContext';
+import { employeeService } from '@/services/api';
+import { Profile, AppRole, SubAdminPermissions } from '@/types';
+import { Card } from '@/components/common/Card';
+import { Button } from '@/components/common/Button';
+import { Input } from '@/components/common/Input';
+import { Badge } from '@/components/common/Badge';
+import { Modal } from '@/components/common/Modal';
+import { EmptyState } from '@/components/common/EmptyState';
+import { formatDate } from '@/utils/formatters';
+import { 
+  Users, 
+  Plus, 
+  ShieldCheck, 
+  KeyRound, 
+  UserX, 
+  UserCheck, 
+  Edit3, 
+  Building2 
+} from 'lucide-react';
+
+const DEFAULT_SUBADMIN_PERMISSIONS: SubAdminPermissions = {
+  view_branch_dashboard: true,
+  manage_medicines: false,
+  manage_inventory: true,
+  view_invoices: true,
+  access_billing: true,
+  view_branch_reports: false,
+  manage_permitted_employees: false,
+};
+
+export const StaffRoles: React.FC = () => {
+  const { user } = useAuth();
+  const { branches } = useBranch();
+
+  const [employees, setEmployees] = useState<Profile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Create Employee Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formName, setFormName] = useState('');
+  const [formEmpId, setFormEmpId] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formPhone, setFormPhone] = useState('');
+  const [formPassword, setFormPassword] = useState('');
+  const [formRole, setFormRole] = useState<AppRole>('billing_employee');
+  const [formBranchId, setFormBranchId] = useState(branches[0]?.id || '');
+  const [formPermissions, setFormPermissions] = useState<SubAdminPermissions>(DEFAULT_SUBADMIN_PERMISSIONS);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // SubAdmin Permissions Edit Modal
+  const [permModalUser, setPermModalUser] = useState<Profile | null>(null);
+
+  const loadEmployees = async () => {
+    setIsLoading(true);
+    try {
+      const data = await employeeService.getEmployees();
+      setEmployees(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadEmployees();
+  }, []);
+
+  const openCreateModal = () => {
+    const nextSeq = employees.length + 1;
+    setFormName('');
+    setFormEmpId(`EMP00${nextSeq}`);
+    setFormEmail('');
+    setFormPhone('');
+    setFormPassword('');
+    setFormRole('billing_employee');
+    setFormBranchId(branches[0]?.id || '');
+    setFormPermissions(DEFAULT_SUBADMIN_PERMISSIONS);
+    setFormError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleCreateEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!formName.trim()) { setFormError('Employee name is required'); return; }
+    if (!formEmpId.trim()) { setFormError('Employee ID is required'); return; }
+    if (!formEmail.trim()) { setFormError('Email address is required'); return; }
+    if (!formPassword || formPassword.length < 6) { setFormError('Initial password must be at least 6 characters'); return; }
+    if (!formBranchId) { setFormError('Please assign a branch'); return; }
+
+    setIsSubmitting(true);
+    try {
+      await employeeService.createEmployee({
+        fullName: formName.trim(),
+        employeeId: formEmpId.trim(),
+        email: formEmail.trim(),
+        phone: formPhone.trim() || undefined,
+        role: formRole,
+        branchId: formBranchId,
+        initialPassword: formPassword,
+        permissions: formRole === 'sub_admin' ? formPermissions : undefined,
+      });
+
+      setIsModalOpen(false);
+      await loadEmployees();
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to create employee');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleStatus = async (emp: Profile) => {
+    if (emp.role === 'master_admin' && emp.id === user?.id) {
+      alert('Cannot deactivate your own Master Admin account.');
+      return;
+    }
+    const nextStatus = !emp.is_active;
+    const confirmMsg = nextStatus 
+      ? `Activate employee account for ${emp.full_name}?`
+      : `Deactivate employee account for ${emp.full_name}? They will be blocked from logging in.`;
+
+    if (window.confirm(confirmMsg)) {
+      try {
+        await employeeService.toggleEmployeeStatus(emp.id, nextStatus);
+        await loadEmployees();
+      } catch (err: any) {
+        alert('Failed to update status: ' + err.message);
+      }
+    }
+  };
+
+  const handleSavePermissions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!permModalUser) return;
+    try {
+      await employeeService.updateEmployee(permModalUser.id, {
+        permissions: permModalUser.permissions,
+      });
+      setPermModalUser(null);
+      await loadEmployees();
+    } catch (err: any) {
+      alert('Failed to update permissions: ' + err.message);
+    }
+  };
+
+  const getRoleBadgeVariant = (role: AppRole) => {
+    switch (role) {
+      case 'master_admin': return 'brand';
+      case 'sub_admin': return 'warning';
+      case 'branch_manager': return 'neutral';
+      case 'inventory_manager': return 'neutral';
+      default: return 'default';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
+        <div>
+          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Staff & Role Administration</h1>
+          <p className="text-xs text-charcoal-500 mt-0.5">
+            Role-based authorization, Employee ID login credentials, and granular Sub Admin access matrix.
+          </p>
+        </div>
+
+        {user?.role === 'master_admin' && (
+          <Button variant="primary" size="sm" onClick={openCreateModal}>
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Create Staff Account
+          </Button>
+        )}
+      </div>
+
+      {/* Staff Table */}
+      <Card className="bg-white overflow-hidden" noPadding>
+        {isLoading ? (
+          <div className="py-12 text-center text-xs text-charcoal-500">Loading personnel roster...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
+                  <th className="py-2.5 px-4">Employee Details</th>
+                  <th className="py-2.5 px-3">Employee ID</th>
+                  <th className="py-2.5 px-3">System Role</th>
+                  <th className="py-2.5 px-3">Assigned Branch</th>
+                  <th className="py-2.5 px-3">Contact Email & Phone</th>
+                  <th className="py-2.5 px-3 text-center">Status</th>
+                  <th className="py-2.5 px-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-charcoal-100">
+                {employees.map((emp) => (
+                  <tr key={emp.id} className="hover:bg-cream-50/50">
+                    <td className="py-3 px-4">
+                      <span className="font-bold text-charcoal-900 block text-sm">{emp.full_name}</span>
+                      <span className="text-[10px] text-charcoal-500">Registered: {formatDate(emp.created_at, false)}</span>
+                    </td>
+
+                    <td className="py-3 px-3">
+                      <span className="font-mono font-bold text-charcoal-900 bg-cream-100 px-2 py-0.5 rounded border border-charcoal-200">
+                        {emp.employee_id}
+                      </span>
+                    </td>
+
+                    <td className="py-3 px-3">
+                      <Badge variant={getRoleBadgeVariant(emp.role)} className="uppercase text-[10px] font-bold">
+                        {emp.role.replace('_', ' ')}
+                      </Badge>
+                      {emp.role === 'sub_admin' && (
+                        <button
+                          onClick={() => setPermModalUser(emp)}
+                          className="text-[10px] text-brand-600 hover:underline block mt-0.5 font-semibold"
+                        >
+                          Configure Permissions
+                        </button>
+                      )}
+                    </td>
+
+                    <td className="py-3 px-3">
+                      <span className="font-medium text-charcoal-800">
+                        {emp.role === 'master_admin' ? 'All Branches (Enterprise)' : emp.branch?.name || 'Assigned Branch'}
+                      </span>
+                    </td>
+
+                    <td className="py-3 px-3 text-charcoal-700">
+                      <div>{emp.email}</div>
+                      <div className="text-[10px] text-charcoal-500">{emp.phone || '-'}</div>
+                    </td>
+
+                    <td className="py-3 px-3 text-center">
+                      <Badge variant={emp.is_active ? 'success' : 'danger'} className="text-[10px] font-semibold">
+                        {emp.is_active ? 'ACTIVE' : 'DEACTIVATED'}
+                      </Badge>
+                    </td>
+
+                    <td className="py-3 px-3 text-center">
+                      {user?.role === 'master_admin' && emp.role !== 'master_admin' && (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => toggleStatus(emp)}
+                            className={`p-1.5 rounded transition-colors ${
+                              emp.is_active
+                                ? 'text-charcoal-400 hover:text-red-700 hover:bg-red-50'
+                                : 'text-emerald-700 hover:bg-emerald-50'
+                            }`}
+                            title={emp.is_active ? 'Deactivate Account' : 'Activate Account'}
+                          >
+                            {emp.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Create Employee Account Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title="Create New Employee Account"
+        maxWidth="lg"
+      >
+        <form onSubmit={handleCreateEmployee} className="space-y-4">
+          {formError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+              {formError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Full Name *"
+              placeholder="e.g. Anand Sharma"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              required
+            />
+            <Input
+              label="Assigned Employee ID *"
+              placeholder="e.g. EMP002"
+              value={formEmpId}
+              onChange={(e) => setFormEmpId(e.target.value.toUpperCase())}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Registered Email Address *"
+              type="email"
+              placeholder="anand@pharmadesk.local"
+              value={formEmail}
+              onChange={(e) => setFormEmail(e.target.value)}
+              required
+            />
+            <Input
+              label="Initial Password *"
+              type="password"
+              placeholder="At least 6 characters"
+              value={formPassword}
+              onChange={(e) => setFormPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
+                System Role *
+              </label>
+              <select
+                value={formRole}
+                onChange={(e) => setFormRole(e.target.value as AppRole)}
+                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="billing_employee">Billing Employee (POS Only)</option>
+                <option value="inventory_manager">Inventory Manager (Stock & Medicines)</option>
+                <option value="branch_manager">Branch Manager (Full Branch Access)</option>
+                <option value="sub_admin">Sub Admin (Custom Permission Matrix)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
+                Assigned Branch *
+              </label>
+              <select
+                value={formBranchId}
+                onChange={(e) => setFormBranchId(e.target.value)}
+                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Sub Admin Granular Permissions Matrix */}
+          {formRole === 'sub_admin' && (
+            <div className="p-4 bg-cream-50 rounded border border-charcoal-200 space-y-2">
+              <span className="text-xs font-bold text-charcoal-900 uppercase tracking-wider block">
+                Sub Admin Permissions Matrix
+              </span>
+              <p className="text-[11px] text-charcoal-500 mb-2">
+                Sub Admin receives only explicitly checked permissions.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
+                  <label key={permKey} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formPermissions[permKey as keyof SubAdminPermissions])}
+                      onChange={(e) => setFormPermissions({
+                        ...formPermissions,
+                        [permKey]: e.target.checked,
+                      })}
+                      className="rounded border-charcoal-300 text-brand-500 focus:ring-brand-400"
+                    />
+                    <span className="capitalize">{permKey.replace(/_/g, ' ')}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-charcoal-100">
+            <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" isLoading={isSubmitting}>
+              Create Account
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Permissions Modal for existing Sub Admin */}
+      <Modal
+        isOpen={Boolean(permModalUser)}
+        onClose={() => setPermModalUser(null)}
+        title={`Permissions Matrix — ${permModalUser?.full_name}`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleSavePermissions} className="space-y-4">
+          <p className="text-xs text-charcoal-600">
+            Select allowed permissions for {permModalUser?.full_name} ({permModalUser?.employee_id}).
+          </p>
+
+          <div className="space-y-2 text-xs p-3 bg-cream-50 rounded border border-charcoal-200">
+            {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
+              <label key={permKey} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(permModalUser?.permissions?.[permKey as keyof SubAdminPermissions])}
+                  onChange={(e) => {
+                    if (!permModalUser) return;
+                    setPermModalUser({
+                      ...permModalUser,
+                      permissions: {
+                        ...permModalUser.permissions,
+                        [permKey]: e.target.checked,
+                      },
+                    });
+                  }}
+                  className="rounded border-charcoal-300 text-brand-500 focus:ring-brand-400"
+                />
+                <span className="capitalize font-medium">{permKey.replace(/_/g, ' ')}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" type="button" onClick={() => setPermModalUser(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit">
+              Save Permissions
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+};
