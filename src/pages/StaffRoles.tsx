@@ -3,12 +3,18 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { employeeService } from '@/services/api';
 import { Profile, AppRole, SubAdminPermissions } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { Modal } from '@/components/common/Modal';
-import { EmptyState } from '@/components/common/EmptyState';
+import { 
+  Card, 
+  Button, 
+  Input, 
+  Select, 
+  Checkbox, 
+  Badge, 
+  Modal, 
+  EmptyState, 
+  PageHeader, 
+  Skeleton 
+} from '@/components/common';
 import { formatDate } from '@/utils/formatters';
 import { 
   Users, 
@@ -54,6 +60,22 @@ export const StaffRoles: React.FC = () => {
   // SubAdmin Permissions Edit Modal
   const [permModalUser, setPermModalUser] = useState<Profile | null>(null);
 
+  // Edit Staff Member Modal
+  const [editModalUser, setEditModalUser] = useState<Profile | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState<AppRole>('billing_employee');
+  const [editBranchId, setEditBranchId] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Reset Password Modal
+  const [resetPassUser, setResetPassUser] = useState<Profile | null>(null);
+  const [newStaffPassword, setNewStaffPassword] = useState('');
+  const [isResettingPass, setIsResettingPass] = useState(false);
+  const [resetPassError, setResetPassError] = useState<string | null>(null);
+  const [resetPassSuccess, setResetPassSuccess] = useState<string | null>(null);
+
   const loadEmployees = async () => {
     setIsLoading(true);
     try {
@@ -71,9 +93,8 @@ export const StaffRoles: React.FC = () => {
   }, []);
 
   const openCreateModal = () => {
-    const nextSeq = employees.length + 1;
     setFormName('');
-    setFormEmpId(`EMP00${nextSeq}`);
+    setFormEmpId(`EMP00${employees.length + 1}`);
     setFormEmail('');
     setFormPhone('');
     setFormPassword('');
@@ -88,11 +109,10 @@ export const StaffRoles: React.FC = () => {
     e.preventDefault();
     setFormError(null);
 
-    if (!formName.trim()) { setFormError('Employee name is required'); return; }
-    if (!formEmpId.trim()) { setFormError('Employee ID is required'); return; }
-    if (!formEmail.trim()) { setFormError('Email address is required'); return; }
-    if (!formPassword || formPassword.length < 6) { setFormError('Initial password must be at least 6 characters'); return; }
-    if (!formBranchId) { setFormError('Please assign a branch'); return; }
+    if (!formName.trim() || !formEmpId.trim() || !formEmail.trim() || !formPassword.trim()) {
+      setFormError('Please fill in all mandatory fields');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -150,6 +170,70 @@ export const StaffRoles: React.FC = () => {
     }
   };
 
+  const openEditModal = (emp: Profile) => {
+    setEditModalUser(emp);
+    setEditName(emp.full_name);
+    setEditRole(emp.role);
+    setEditBranchId(emp.primary_branch_id || branches[0]?.id || '');
+    setEditPhone(emp.phone || '');
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editModalUser) return;
+    if (!editName.trim()) {
+      setEditError('Name is required');
+      return;
+    }
+    setIsEditingSubmitting(true);
+    setEditError(null);
+    try {
+      await employeeService.updateEmployee(editModalUser.id, {
+        full_name: editName.trim(),
+        role: editRole,
+        primary_branch_id: editBranchId,
+        phone: editPhone.trim() || undefined,
+      });
+      setEditModalUser(null);
+      await loadEmployees();
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to update employee');
+    } finally {
+      setIsEditingSubmitting(false);
+    }
+  };
+
+  const openResetPassModal = (emp: Profile) => {
+    setResetPassUser(emp);
+    setNewStaffPassword('');
+    setResetPassError(null);
+    setResetPassSuccess(null);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPassUser) return;
+    if (newStaffPassword.length < 6) {
+      setResetPassError('Password must be at least 6 characters');
+      return;
+    }
+    setIsResettingPass(true);
+    setResetPassError(null);
+    try {
+      await employeeService.resetEmployeePassword(resetPassUser.id, newStaffPassword);
+      setResetPassSuccess(`Password reset successfully for ${resetPassUser.full_name}!`);
+      setTimeout(() => {
+        setResetPassUser(null);
+        setResetPassSuccess(null);
+      }, 1500);
+    } catch (err: any) {
+      setResetPassError(err?.message || 'Failed to reset password');
+    } finally {
+      setIsResettingPass(false);
+    }
+  };
+
   const getRoleBadgeVariant = (role: AppRole) => {
     switch (role) {
       case 'master_admin': return 'brand';
@@ -162,44 +246,43 @@ export const StaffRoles: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Staff & Role Administration</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Role-based authorization, Employee ID login credentials, and granular Sub Admin access matrix.
-          </p>
-        </div>
-
-        {user?.role === 'master_admin' && (
-          <Button variant="primary" size="sm" onClick={openCreateModal}>
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Create Staff Account
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Staff & Role Administration"
+        subtitle="Role-based authorization, Employee ID login credentials, and granular Sub Admin access matrix."
+        actions={
+          user?.role === 'master_admin' && (
+            <Button variant="primary" size="md" onClick={openCreateModal} leftIcon={<Plus className="w-4 h-4" />}>
+              Create Staff Account
+            </Button>
+          )
+        }
+      />
 
       {/* Staff Table */}
       <Card className="bg-white overflow-hidden" noPadding>
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-charcoal-500">Loading personnel roster...</div>
+          <div className="p-6 space-y-3">
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                  <th className="py-2.5 px-4">Employee Details</th>
-                  <th className="py-2.5 px-3">Employee ID</th>
-                  <th className="py-2.5 px-3">System Role</th>
-                  <th className="py-2.5 px-3">Assigned Branch</th>
-                  <th className="py-2.5 px-3">Contact Email & Phone</th>
-                  <th className="py-2.5 px-3 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-center">Actions</th>
+                  <th className="py-3 px-4">Employee Details</th>
+                  <th className="py-3 px-3">Employee ID</th>
+                  <th className="py-3 px-3">System Role</th>
+                  <th className="py-3 px-3">Assigned Branch</th>
+                  <th className="py-3 px-3">Contact Email & Phone</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-charcoal-100">
                 {employees.map((emp) => (
-                  <tr key={emp.id} className="hover:bg-cream-50/50">
+                  <tr key={emp.id} className="hover:bg-cream-50/60 transition-colors">
                     <td className="py-3 px-4">
                       <span className="font-bold text-charcoal-900 block text-sm">{emp.full_name}</span>
                       <span className="text-[10px] text-charcoal-500">Registered: {formatDate(emp.created_at, false)}</span>
@@ -212,7 +295,7 @@ export const StaffRoles: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-3">
-                      <Badge variant={getRoleBadgeVariant(emp.role)} className="uppercase text-[10px] font-bold">
+                      <Badge variant={getRoleBadgeVariant(emp.role) as any} size="sm" className="uppercase font-bold">
                         {emp.role.replace('_', ' ')}
                       </Badge>
                       {emp.role === 'sub_admin' && (
@@ -227,17 +310,17 @@ export const StaffRoles: React.FC = () => {
 
                     <td className="py-3 px-3">
                       <span className="font-medium text-charcoal-800">
-                        {emp.role === 'master_admin' ? 'All Branches (Enterprise)' : emp.branch?.name || 'Assigned Branch'}
+                        {emp.role === 'master_admin' ? 'All Branches (Consolidated)' : emp.branch?.name || 'Assigned Branch'}
                       </span>
                     </td>
 
                     <td className="py-3 px-3 text-charcoal-700">
                       <div>{emp.email}</div>
-                      <div className="text-[10px] text-charcoal-500">{emp.phone || '-'}</div>
+                      <div className="text-[10px] text-charcoal-500 font-mono">{emp.phone || '-'}</div>
                     </td>
 
                     <td className="py-3 px-3 text-center">
-                      <Badge variant={emp.is_active ? 'success' : 'danger'} className="text-[10px] font-semibold">
+                      <Badge variant={emp.is_active ? 'success' : 'danger'} size="sm" className="font-semibold">
                         {emp.is_active ? 'ACTIVE' : 'DEACTIVATED'}
                       </Badge>
                     </td>
@@ -245,6 +328,20 @@ export const StaffRoles: React.FC = () => {
                     <td className="py-3 px-3 text-center">
                       {user?.role === 'master_admin' && emp.role !== 'master_admin' && (
                         <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openEditModal(emp)}
+                            className="p-1.5 rounded transition-colors text-charcoal-400 hover:text-brand-600 hover:bg-brand-50"
+                            title="Edit Staff Details & Role"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openResetPassModal(emp)}
+                            className="p-1.5 rounded transition-colors text-charcoal-400 hover:text-amber-600 hover:bg-amber-50"
+                            title="Reset Staff Password"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => toggleStatus(emp)}
                             className={`p-1.5 rounded transition-colors ${
@@ -291,9 +388,12 @@ export const StaffRoles: React.FC = () => {
             />
             <Input
               label="Assigned Employee ID *"
-              placeholder="e.g. EMP002"
+              placeholder="e.g. emp002"
               value={formEmpId}
-              onChange={(e) => setFormEmpId(e.target.value.toUpperCase())}
+              onChange={(e) => setFormEmpId(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </div>
@@ -302,7 +402,7 @@ export const StaffRoles: React.FC = () => {
             <Input
               label="Registered Email Address *"
               type="email"
-              placeholder="anand@pharmadesk.local"
+              placeholder="staff@bajrangpharmacy.com"
               value={formEmail}
               onChange={(e) => setFormEmail(e.target.value)}
               required
@@ -318,41 +418,32 @@ export const StaffRoles: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                System Role *
-              </label>
-              <select
-                value={formRole}
-                onChange={(e) => setFormRole(e.target.value as AppRole)}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                <option value="billing_employee">Billing Employee (POS Only)</option>
-                <option value="inventory_manager">Inventory Manager (Stock & Medicines)</option>
-                <option value="branch_manager">Branch Manager (Full Branch Access)</option>
-                <option value="sub_admin">Sub Admin (Custom Permission Matrix)</option>
-              </select>
-            </div>
+            <Select
+              label="System Role *"
+              value={formRole}
+              onChange={(e) => setFormRole(e.target.value as AppRole)}
+              options={[
+                { value: 'billing_employee', label: 'Billing Employee (POS Only)' },
+                { value: 'inventory_manager', label: 'Inventory Manager (Stock & Catalog)' },
+                { value: 'branch_manager', label: 'Branch Manager (Full Branch Access)' },
+                { value: 'sub_admin', label: 'Sub Admin (Custom Permission Matrix)' },
+              ]}
+            />
 
-            <div>
-              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                Assigned Branch *
-              </label>
-              <select
-                value={formBranchId}
-                onChange={(e) => setFormBranchId(e.target.value)}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Assigned Branch *"
+              value={formBranchId}
+              onChange={(e) => setFormBranchId(e.target.value)}
+              options={branches.map(b => ({
+                value: b.id,
+                label: `${b.name} (${b.branch_code})`
+              }))}
+            />
           </div>
 
           {/* Sub Admin Granular Permissions Matrix */}
           {formRole === 'sub_admin' && (
-            <div className="p-4 bg-cream-50 rounded border border-charcoal-200 space-y-2">
+            <div className="p-4 bg-cream-50 rounded-lg border border-charcoal-200 space-y-2">
               <span className="text-xs font-bold text-charcoal-900 uppercase tracking-wider block">
                 Sub Admin Permissions Matrix
               </span>
@@ -361,18 +452,15 @@ export const StaffRoles: React.FC = () => {
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
-                  <label key={permKey} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(formPermissions[permKey as keyof SubAdminPermissions])}
-                      onChange={(e) => setFormPermissions({
-                        ...formPermissions,
-                        [permKey]: e.target.checked,
-                      })}
-                      className="rounded border-charcoal-300 text-brand-500 focus:ring-brand-400"
-                    />
-                    <span className="capitalize">{permKey.replace(/_/g, ' ')}</span>
-                  </label>
+                  <Checkbox
+                    key={permKey}
+                    label={permKey.replace(/_/g, ' ').toUpperCase()}
+                    checked={Boolean(formPermissions[permKey as keyof SubAdminPermissions])}
+                    onChange={(checked) => setFormPermissions({
+                      ...formPermissions,
+                      [permKey]: checked,
+                    })}
+                  />
                 ))}
               </div>
             </div>
@@ -401,26 +489,23 @@ export const StaffRoles: React.FC = () => {
             Select allowed permissions for {permModalUser?.full_name} ({permModalUser?.employee_id}).
           </p>
 
-          <div className="space-y-2 text-xs p-3 bg-cream-50 rounded border border-charcoal-200">
+          <div className="space-y-2 text-xs p-3.5 bg-cream-50 rounded-lg border border-charcoal-200">
             {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
-              <label key={permKey} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Boolean(permModalUser?.permissions?.[permKey as keyof SubAdminPermissions])}
-                  onChange={(e) => {
-                    if (!permModalUser) return;
-                    setPermModalUser({
-                      ...permModalUser,
-                      permissions: {
-                        ...permModalUser.permissions,
-                        [permKey]: e.target.checked,
-                      },
-                    });
-                  }}
-                  className="rounded border-charcoal-300 text-brand-500 focus:ring-brand-400"
-                />
-                <span className="capitalize font-medium">{permKey.replace(/_/g, ' ')}</span>
-              </label>
+              <Checkbox
+                key={permKey}
+                label={permKey.replace(/_/g, ' ').toUpperCase()}
+                checked={Boolean(permModalUser?.permissions?.[permKey as keyof SubAdminPermissions])}
+                onChange={(checked) => {
+                  if (!permModalUser) return;
+                  setPermModalUser({
+                    ...permModalUser,
+                    permissions: {
+                      ...permModalUser.permissions,
+                      [permKey]: checked,
+                    },
+                  });
+                }}
+              />
             ))}
           </div>
 
@@ -430,6 +515,115 @@ export const StaffRoles: React.FC = () => {
             </Button>
             <Button variant="primary" size="sm" type="submit">
               Save Permissions
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit Staff Member Modal */}
+      <Modal
+        isOpen={Boolean(editModalUser)}
+        onClose={() => setEditModalUser(null)}
+        title={`Edit Staff Member — ${editModalUser?.employee_id}`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleSaveEdit} className="space-y-4">
+          {editError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+              {editError}
+            </div>
+          )}
+
+          <Input
+            label="Full Name *"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            required
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="System Role *"
+              value={editRole}
+              onChange={(e) => setEditRole(e.target.value as AppRole)}
+            >
+              <option value="billing_employee">Billing Employee (POS Only)</option>
+              <option value="inventory_manager">Inventory & Purchases Manager</option>
+              <option value="branch_manager">Branch Manager</option>
+              <option value="sub_admin">Sub Admin (Configurable Matrix)</option>
+            </Select>
+
+            <Select
+              label="Assigned Branch *"
+              value={editBranchId}
+              onChange={(e) => setEditBranchId(e.target.value)}
+            >
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <Input
+            label="Phone Number"
+            type="tel"
+            placeholder="+91 98765 43210"
+            value={editPhone}
+            onChange={(e) => setEditPhone(e.target.value)}
+          />
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-charcoal-100">
+            <Button variant="outline" size="sm" type="button" onClick={() => setEditModalUser(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" isLoading={isEditingSubmitting}>
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Reset Staff Password Modal */}
+      <Modal
+        isOpen={Boolean(resetPassUser)}
+        onClose={() => setResetPassUser(null)}
+        title={`Reset Password — ${resetPassUser?.full_name} (${resetPassUser?.employee_id})`}
+        maxWidth="sm"
+      >
+        <form onSubmit={handleResetPassword} className="space-y-4">
+          {resetPassError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+              {resetPassError}
+            </div>
+          )}
+
+          {resetPassSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800">
+              {resetPassSuccess}
+            </div>
+          )}
+
+          <p className="text-xs text-charcoal-600">
+            Enter a new password for {resetPassUser?.full_name}. They will be able to log in immediately with their Employee ID and this new password.
+          </p>
+
+          <Input
+            label="New Password *"
+            type="password"
+            placeholder="At least 6 characters"
+            value={newStaffPassword}
+            onChange={(e) => setNewStaffPassword(e.target.value)}
+            required
+          />
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-charcoal-100">
+            <Button variant="outline" size="sm" type="button" onClick={() => setResetPassUser(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" isLoading={isResettingPass}>
+              Update Password
             </Button>
           </div>
         </form>

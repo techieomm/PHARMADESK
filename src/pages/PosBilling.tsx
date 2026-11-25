@@ -1,167 +1,321 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
-import { medicineService, inventoryService, billingService } from '@/services/api';
-import { Medicine, BranchInventory, CartItem, PaymentMethod, Invoice } from '@/types';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { Card } from '@/components/common/Card';
-import { EmptyState } from '@/components/common/EmptyState';
-import { formatCurrency, formatDualUnitStock, calculatePieces } from '@/utils/formatters';
-import { useBarcodeScanner } from '@/components/common/BarcodeScannerListener';
-import { parseBarcode } from '@/utils/barcode';
+import { useBarcodeScanner } from '@/context/BarcodeScannerContext';
+import { repositories } from '@/data/repositories';
+import {
+  Medicine,
+  BranchInventory,
+  InventoryBatch,
+  CartItem,
+  PaymentMethod,
+  PaymentSplit,
+  Invoice,
+  Customer,
+} from '@/types';
+import {
+  Button,
+  Input,
+  Badge,
+  Card,
+  Modal,
+  Drawer,
+  EmptyState,
+  Select,
+  CameraScannerModal,
+} from '@/components/common';
+import {
+  formatCurrency,
+  formatDualUnitStock,
+  calculatePieces,
+} from '@/utils/formatters';
+import {
+  allocateFefoStock,
+  calculateInvoiceTotals,
+  calculateLineGst,
+  generateIdempotencyKey,
+} from '@/core';
 import { InvoicePrintModal } from '@/components/pos/InvoicePrintModal';
-import { 
-  Scan, 
-  Search, 
-  Trash2, 
-  Receipt, 
-  CreditCard, 
-  Banknote, 
-  QrCode, 
+import {
+  Search,
+  Trash2,
+  Receipt,
+  CreditCard,
+  Banknote,
+  QrCode,
   AlertTriangle,
-  Building2,
-  CheckCircle2
+  Camera,
+  PauseCircle,
+  PlayCircle,
+  User,
+  Phone,
+  Calendar,
+  MapPin,
+  RotateCcw,
+  CheckCircle2,
+  UserPlus,
+  RefreshCw,
+  Plus,
+  Minus,
+  Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const PosBilling: React.FC = () => {
   const { user } = useAuth();
-  const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
+  const { branches, selectedBranchId } = useBranch();
+  const { registerScanHandler, setActiveScreenContext } = useBarcodeScanner();
 
-  // Resolve active billing branch
-  const billingBranchId = selectedBranchId === 'all' 
-    ? (user?.primary_branch_id || branches[0]?.id || '') 
-    : selectedBranchId;
-  const currentBranch = branches.find(b => b.id === billingBranchId);
+  // Active Billing Branch & Counter
+  const billingBranchId =
+    selectedBranchId === 'all'
+      ? user?.primary_branch_id || branches[0]?.id || 'c0000000-0000-0000-0000-000000000001'
+      : selectedBranchId;
+  const currentBranch = branches.find((b) => b.id === billingBranchId);
 
-  // Customer state
-  const [customerName, setCustomerName] = useState('');
+  // Customer State
+  const [customerName, setCustomerName] = useState('Walk-in Customer');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [customerAge, setCustomerAge] = useState<string>('');
+  const [customerAddress, setCustomerAddress] = useState<string>('');
+  const [customerId, setCustomerId] = useState<string | undefined>(undefined);
+  const [customerGstin, setCustomerGstin] = useState<string>('');
+  const [customerDue, setCustomerDue] = useState<number>(0);
+  const [customerLimit, setCustomerLimit] = useState<number>(5000);
+  const [doctorName, setDoctorName] = useState<string>('');
+  const [doctorRegNo, setDoctorRegNo] = useState<string>('');
 
-  // Search & Cart state
+  const resetCustomer = () => {
+    setCustomerName('Walk-in Customer');
+    setCustomerPhone('');
+    setCustomerAge('');
+    setCustomerAddress('');
+    setCustomerId(undefined);
+    setCustomerGstin('');
+    setCustomerDue(0);
+    setCustomerLimit(5000);
+    setDoctorName('');
+    setDoctorRegNo('');
+  };
+
+  // Payment State
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [cashTendered, setCashTendered] = useState<number | ''>('');
+  const [paymentRefNumber, setPaymentRefNumber] = useState<string>('');
+  const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([]);
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [splitCash, setSplitCash] = useState<number>(0);
+  const [splitUpi, setSplitUpi] = useState<number>(0);
+  const [splitCard, setSplitCard] = useState<number>(0);
+  const [splitCredit, setSplitCredit] = useState<number>(0);
+
+  // Search & Cart
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Medicine[]>([]);
+  const [allMedicines, setAllMedicines] = useState<Medicine[]>([]);
+  const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [branchInventory, setBranchInventory] = useState<BranchInventory[]>([]);
+  const [heldCarts, setHeldCarts] = useState<
+    Array<{
+      id: string;
+      name: string;
+      items: CartItem[];
+      customer: string;
+      phone?: string;
+      age?: string;
+      address?: string;
+    }>
+  >([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Completed invoice for printing
+  // Modals & Camera Scanner
   const [completedInvoice, setCompletedInvoice] = useState<Invoice | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [showSubstituteModal, setShowSubstituteModal] = useState(false);
+  const [substituteOptions, setSubstituteOptions] = useState<Medicine[]>([]);
+  const [selectedMedForSub, setSelectedMedForSub] = useState<Medicine | null>(null);
+  const [showQuickCustomerModal, setShowQuickCustomerModal] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Load branch inventory on branch change
-  const loadInventory = async () => {
-    if (!billingBranchId) return;
+  // Set Barcode Scanner context to 'pos'
+  useEffect(() => {
+    setActiveScreenContext('pos');
+  }, [setActiveScreenContext]);
+
+  // Load Inventory Batches & Medicines
+  const loadData = async () => {
     try {
-      const inv = await inventoryService.getBranchInventory(billingBranchId);
-      setBranchInventory(inv);
-    } catch (e) {
-      console.error('Failed to load inventory for branch:', e);
+      const [batchList, medList] = await Promise.all([
+        repositories.inventory.getInventoryBatches(billingBranchId),
+        repositories.medicines.getMedicines(),
+      ]);
+      setBatches(batchList);
+      setAllMedicines(medList);
+    } catch (err) {
+      console.error('POS data load error:', err);
     }
   };
 
   useEffect(() => {
-    loadInventory();
+    loadData();
   }, [billingBranchId]);
 
-  // Barcode scanner listener
-  useBarcodeScanner({
-    enabled: true,
-    beepOnScan: true,
-    onScan: async (rawBarcode) => {
-      const parsed = parseBarcode(rawBarcode);
-      const codeToSearch = parsed.gtin || parsed.raw;
-
-      try {
-        const med = await medicineService.getMedicineByBarcode(codeToSearch);
-        if (med) {
-          addMedicineToCart(med);
-        } else {
-          setErrorMsg(`Barcode "${codeToSearch}" not found in medicine master.`);
-          setTimeout(() => setErrorMsg(null), 4000);
-        }
-      } catch (err) {
-        console.error('Barcode lookup error:', err);
-      }
-    },
-  });
-
-  // Search medicines
+  // Barcode Scan Handler
   useEffect(() => {
-    const handler = setTimeout(async () => {
-      if (searchQuery.trim().length >= 2) {
-        setIsSearching(true);
+    const unregister = registerScanHandler('pos', async (scan) => {
+      const code = scan.code;
+      // 1. Check if barcode matches any medicine
+      const found = await repositories.medicines.getMedicineByBarcode(code);
+      if (found) {
+        addMedicineToCart(found, scan.parsedGs1.batchNumber);
+        return true;
+      } else {
+        setErrorMessage(`Barcode "${code}" not registered. Use 'Quick Add' in Medicine Master.`);
+        setTimeout(() => setErrorMessage(null), 4000);
+        return false;
+      }
+    });
+
+    return () => unregister();
+  }, [registerScanHandler, batches, allMedicines]);
+
+  // Keyboard Shortcuts (F1, F2, F4, F7, F8, F9)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        handleHoldCart();
+      } else if (e.key === 'F7') {
+        e.preventDefault();
+        setShowQuickCustomerModal(true);
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        setIsSplitModalOpen(true);
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        if (!isSubmitting) {
+          setPaymentMethod('cash');
+          handleCheckout('cash');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, customerName, customerPhone, paymentMethod, isSubmitting]);
+
+  // Debounced Medicine Search
+  useEffect(() => {
+    if (searchQuery.trim().length >= 2) {
+      setIsSearching(true);
+      const timer = setTimeout(async () => {
         try {
-          const results = await medicineService.searchMedicines(searchQuery);
-          setSearchResults(results);
+          const res = await repositories.medicines.searchMedicines(searchQuery);
+          setSearchResults(res);
         } catch (e) {
           console.error(e);
         } finally {
           setIsSearching(false);
         }
-      } else {
-        setSearchResults([]);
-      }
-    }, 200);
-
-    return () => clearTimeout(handler);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setSearchResults([]);
+    }
   }, [searchQuery]);
 
-  // Add medicine to cart
-  const addMedicineToCart = (med: Medicine) => {
-    setErrorMsg(null);
-    const inv = branchInventory.find(i => i.medicine_id === med.id);
-    const availablePieces = inv ? inv.stock_pieces : 0;
+  // Customer Phone lookup
+  const handlePhoneLookup = async (phone: string) => {
+    setCustomerPhone(phone);
+    const cleanDigits = phone.replace(/[^0-9]/g, '');
+    if (cleanDigits.length === 10) {
+      try {
+        const cust = await repositories.customers.getCustomerByPhone(cleanDigits);
+        if (cust) {
+          setCustomerId(cust.id);
+          setCustomerName(cust.name);
+          if (cust.age) setCustomerAge(String(cust.age));
+          if (cust.address) setCustomerAddress(cust.address);
+          setCustomerGstin(cust.gstin || '');
+          setCustomerDue(cust.outstanding_balance);
+          setCustomerLimit(cust.credit_limit);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
 
-    setCart(prevCart => {
-      const existingIdx = prevCart.findIndex(it => it.medicine.id === med.id);
+  // Add item to cart with FEFO batch selection & expiry checks
+  const addMedicineToCart = (med: Medicine, preferredBatchNumber?: string) => {
+    setErrorMessage(null);
+    const medBatches = batches.filter(
+      (b) => b.medicine_id === med.id && b.is_active && b.stock_pieces > 0
+    );
 
-      if (existingIdx >= 0) {
-        const item = prevCart[existingIdx];
-        const nextQty = item.unit_quantity + 1;
-        const requiredPieces = calculatePieces(nextQty, item.selected_unit, med.pieces_per_strip);
+    if (medBatches.length === 0) {
+      setErrorMessage(`No sellable stock for "${med.brand_name}". Batches empty or expired.`);
+      return;
+    }
 
-        if (requiredPieces > availablePieces) {
-          setErrorMsg(`Cannot add more "${med.brand_name}". Available stock: ${availablePieces} pieces.`);
-          return prevCart;
+    // FEFO Allocation preview
+    const fefoAlloc = allocateFefoStock(medBatches, med.pieces_per_strip);
+    if (!fefoAlloc.isFullyAllocated) {
+      setErrorMessage(`Insufficient pieces for "${med.brand_name}". Sellable: ${fefoAlloc.totalAllocatedPieces} pcs.`);
+      return;
+    }
+
+    const primaryBatch = preferredBatchNumber
+      ? medBatches.find((b) => b.batch_number === preferredBatchNumber) || medBatches[0]
+      : medBatches[0];
+
+    const isNearExpiry = fefoAlloc.warnings.length > 0;
+
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.medicine.id === med.id);
+      if (idx >= 0) {
+        const existing = prev[idx];
+        const nextQty = existing.unit_quantity + 1;
+        const totalPieces = calculatePieces(nextQty, existing.selected_unit, med.pieces_per_strip);
+
+        const checkAlloc = allocateFefoStock(medBatches, totalPieces);
+        if (!checkAlloc.isFullyAllocated) {
+          setErrorMessage(`Cannot add more "${med.brand_name}". Available: ${checkAlloc.totalAllocatedPieces} pieces.`);
+          return prev;
         }
 
-        const updated = [...prevCart];
-        updated[existingIdx] = {
-          ...item,
+        const updated = [...prev];
+        updated[idx] = {
+          ...existing,
           unit_quantity: nextQty,
-          item_total: Number((item.unit_price * nextQty).toFixed(2)),
-          required_pieces: requiredPieces,
+          item_total: Number((existing.unit_price * nextQty).toFixed(2)),
+          required_pieces: totalPieces,
         };
         return updated;
       } else {
-        // Add new line (Default to 1 Strip if strip price exists, else 1 Piece)
         const defaultUnit: 'strip' | 'piece' = med.strip_selling_price > 0 ? 'strip' : 'piece';
-        const unitPrice = defaultUnit === 'strip' ? med.strip_selling_price : med.piece_selling_price;
-        const requiredPieces = calculatePieces(1, defaultUnit, med.pieces_per_strip);
-
-        if (requiredPieces > availablePieces) {
-          setErrorMsg(`Out of stock for "${med.brand_name}". Available: ${availablePieces} pieces.`);
-          return prevCart;
-        }
+        const price = defaultUnit === 'strip' ? med.strip_selling_price : med.piece_selling_price;
+        const reqPieces = calculatePieces(1, defaultUnit, med.pieces_per_strip);
 
         return [
-          ...prevCart,
+          ...prev,
           {
             medicine: med,
-            inventory: inv,
+            selectedBatch: primaryBatch,
             selected_unit: defaultUnit,
             unit_quantity: 1,
-            unit_price: unitPrice,
-            item_total: unitPrice,
-            available_pieces: availablePieces,
-            required_pieces: requiredPieces,
+            unit_price: price,
+            item_total: price,
+            available_pieces: fefoAlloc.totalAllocatedPieces,
+            required_pieces: reqPieces,
+            warning: isNearExpiry ? 'Expires in <90 days' : undefined,
           },
         ];
       }
@@ -172,468 +326,873 @@ export const PosBilling: React.FC = () => {
     searchInputRef.current?.focus();
   };
 
-  // Update unit for a line item
-  const handleUnitChange = (index: number, newUnit: 'strip' | 'piece') => {
-    setCart(prev => {
-      const updated = [...prev];
-      const item = updated[index];
-      const med = item.medicine;
-      const unitPrice = newUnit === 'strip' ? med.strip_selling_price : med.piece_selling_price;
-      const requiredPieces = calculatePieces(item.unit_quantity, newUnit, med.pieces_per_strip);
-
-      updated[index] = {
-        ...item,
-        selected_unit: newUnit,
-        unit_price: unitPrice,
-        item_total: Number((unitPrice * item.unit_quantity).toFixed(2)),
-        required_pieces: requiredPieces,
-      };
-      return updated;
-    });
-  };
-
-  // Update quantity for a line item
-  const handleQuantityChange = (index: number, valStr: string) => {
-    const qty = parseFloat(valStr) || 0;
-    if (qty < 0) return;
-
-    setCart(prev => {
-      const updated = [...prev];
-      const item = updated[index];
-      const med = item.medicine;
-      const requiredPieces = calculatePieces(qty, item.selected_unit, med.pieces_per_strip);
-
-      updated[index] = {
-        ...item,
-        unit_quantity: qty,
-        item_total: Number((item.unit_price * qty).toFixed(2)),
-        required_pieces: requiredPieces,
-      };
-      return updated;
-    });
-  };
-
-  const removeItem = (index: number) => {
-    setCart(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Calculate cart summary
-  const totalAmountPayable = cart.reduce((sum, it) => sum + it.item_total, 0);
-  const totalItemsCount = cart.length;
-
-  // Complete & Generate Bill
-  const handleCompleteBill = async () => {
-    setErrorMsg(null);
-
-    if (!billingBranchId) {
-      setErrorMsg('Please select a valid branch for billing.');
+  // Find Generic Substitutes (Same composition & strength)
+  const handleFindSubstitutes = (med: Medicine) => {
+    setSelectedMedForSub(med);
+    if (!med.composition) {
+      setSubstituteOptions([]);
+      setShowSubstituteModal(true);
       return;
     }
-    if (!customerName.trim()) {
-      setErrorMsg('Customer name is required.');
-      return;
+
+    const matches = allMedicines.filter(
+      (m) =>
+        m.id !== med.id &&
+        m.composition?.toLowerCase().trim() === med.composition?.toLowerCase().trim()
+    );
+    setSubstituteOptions(matches);
+    setShowSubstituteModal(true);
+  };
+
+  // Cart Calculations with Indian GST Engine
+  const totals = useMemo(() => {
+    const lines = cart.map((it) =>
+      calculateLineGst({
+        unitPrice: it.unit_price,
+        quantity: it.unit_quantity,
+        gstRate: it.medicine.gst_rate || 12,
+        isPriceInclusiveGst: true,
+        isInterState: customerGstin ? !customerGstin.startsWith('09') : false,
+      })
+    );
+    return calculateInvoiceTotals(lines);
+  }, [cart, customerGstin]);
+
+  // Hold & Resume Carts
+  const handleHoldCart = () => {
+    if (cart.length === 0) return;
+    const newCart = {
+      id: `cart-${Date.now()}`,
+      name: `Held Bill (${customerName})`,
+      items: cart,
+      customer: customerName,
+      phone: customerPhone,
+      age: customerAge,
+      address: customerAddress,
+    };
+    setHeldCarts((prev) => [...prev, newCart]);
+    setCart([]);
+    resetCustomer();
+  };
+
+  const handleResumeCart = (heldId: string) => {
+    const found = heldCarts.find((c) => c.id === heldId);
+    if (found) {
+      setCart(found.items);
+      setCustomerName(found.customer);
+      setCustomerPhone(found.phone || '');
+      setCustomerAge(found.age || '');
+      setCustomerAddress(found.address || '');
+      setHeldCarts((prev) => prev.filter((c) => c.id !== heldId));
     }
-    if (!customerPhone.trim()) {
-      setErrorMsg('Customer phone number is required.');
-      return;
-    }
+  };
+
+  // Atomic Checkout
+  const handleCheckout = async (chosenPaymentMethod: PaymentMethod = paymentMethod) => {
+    if (isSubmitting) return; // Prevent double-submit
     if (cart.length === 0) {
-      setErrorMsg('Cannot generate bill with empty cart.');
+      setErrorMessage('Cart is empty. Scan medicines to bill.');
       return;
     }
 
-    // Verify stock constraints
-    for (const item of cart) {
-      if (item.unit_quantity <= 0) {
-        setErrorMsg(`Quantity for "${item.medicine.brand_name}" must be greater than zero.`);
-        return;
-      }
-      if (item.required_pieces > item.available_pieces) {
-        setErrorMsg(
-          `Insufficient stock for "${item.medicine.brand_name}". Available: ${item.available_pieces} pieces, Required: ${item.required_pieces} pieces.`
-        );
-        return;
-      }
+    // Check Schedule H / H1 / X requirements
+    const hasControlledMed = cart.some(
+      (it) => it.medicine.drug_schedule && it.medicine.drug_schedule !== 'otc'
+    );
+    if (hasControlledMed && (!customerName || customerName === 'Walk-in Customer')) {
+      alert('Patient and doctor information is required for Schedule H/H1/X drugs by law.');
+      return;
+    }
+
+    // Determine payment splits and reference numbers
+    let finalSplits = chosenPaymentMethod === 'split' ? paymentSplits : undefined;
+    if ((chosenPaymentMethod === 'card' || chosenPaymentMethod === 'upi') && paymentRefNumber.trim()) {
+      finalSplits = [
+        {
+          method: chosenPaymentMethod,
+          amount: totals.grandTotal,
+          reference: paymentRefNumber.trim(),
+        },
+      ];
     }
 
     setIsSubmitting(true);
+    setErrorMessage(null);
+
     try {
-      const res = await billingService.createInvoiceAtomic({
+      const idempotencyKey = generateIdempotencyKey('pos');
+      const counterId = 'd0000000-0000-0000-0000-000000000001';
+
+      const result = await repositories.invoices.createInvoiceAtomic({
         branchId: billingBranchId,
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
-        paymentMethod,
+        counterId,
+        customerName: customerName.trim() || 'Walk-in Customer',
+        customerPhone: customerPhone.trim() || undefined,
+        customerAge: customerAge.trim() ? parseInt(customerAge.trim(), 10) : undefined,
+        customerAddress: customerAddress.trim() || undefined,
+        customerId,
+        customerGstin: customerGstin || undefined,
+        customerStateCode: customerGstin ? customerGstin.substring(0, 2) : '09',
+        doctorName: doctorName || undefined,
+        doctorRegNo: doctorRegNo || undefined,
+        paymentMethod: chosenPaymentMethod,
+        paymentSplits: finalSplits,
         items: cart,
-        userId: user?.id || '',
+        idempotencyKey,
       });
 
-      // Bill completed successfully!
-      setCompletedInvoice(res.invoice);
+      // Fetch saved invoice for complete print rendering
+      const savedInvoice = await repositories.invoices.getInvoiceById(result.invoice_id);
+      setCompletedInvoice(savedInvoice);
       setShowPrintModal(true);
 
-      // Reset cart and fields
+      // Clear Cart & Reset Form
       setCart([]);
-      setCustomerName('');
-      setCustomerPhone('');
-      await loadInventory();
+      resetCustomer();
+      setPaymentSplits([]);
+      setCashTendered('');
+      setPaymentRefNumber('');
+      await loadData();
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to complete bill. Please try again.');
+      console.error(err);
+      setErrorMessage(err.message || 'Invoice creation failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Header & Branch Status */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">POS Terminal Billing</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Rapid medicine billing, dual-unit conversion & GST tax invoice generation.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-md border border-charcoal-200">
-          <Building2 className="w-4 h-4 text-brand-600" />
-          <span className="text-xs font-semibold text-charcoal-700">Billing Branch:</span>
-          {user?.role === 'master_admin' ? (
-            <select
-              value={billingBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className="text-xs font-bold text-charcoal-900 bg-cream-50 border border-charcoal-200 rounded px-2 py-1 focus:outline-none"
-            >
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
+    <div className="flex flex-col h-[calc(100vh-4rem)] bg-cream-50 overflow-hidden font-sans select-none">
+      {/* POS Top Control Bar */}
+      <div className="bg-white border-b border-charcoal-200 px-4 py-2 flex items-center justify-between gap-4 shrink-0 shadow-xs">
+        <div className="flex items-center gap-3">
+          <Badge variant="brand" size="md">
+            Counter: C1 (POS)
+          </Badge>
+          <span className="text-xs font-semibold text-charcoal-700 hidden sm:inline">
+            {currentBranch?.name || 'Main Dispensary'}
+          </span>
+          {heldCarts.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              {heldCarts.map((hc, idx) => (
+                <button
+                  key={hc.id}
+                  onClick={() => handleResumeCart(hc.id)}
+                  className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-medium flex items-center gap-1"
+                >
+                  <PlayCircle className="w-3 h-3 text-amber-600" />
+                  Cart {idx + 1} ({hc.items.length})
+                </button>
               ))}
-            </select>
-          ) : (
-            <span className="text-xs font-bold text-charcoal-900 bg-cream-100 px-2 py-0.5 rounded">
-              {currentBranch?.name || 'Assigned Branch'}
-            </span>
+            </div>
           )}
         </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<PauseCircle className="w-3.5 h-3.5 text-amber-600" />}
+            onClick={handleHoldCart}
+            disabled={cart.length === 0}
+            title="Hold current cart (F4)"
+          >
+            Hold Bill (F4)
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<Camera className="w-3.5 h-3.5 text-brand-500" />}
+            onClick={() => setShowCameraModal(true)}
+            title="Scan with phone/web camera"
+          >
+            Camera Scan
+          </Button>
+        </div>
       </div>
 
-      {errorMsg && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2.5 text-xs text-red-800 font-medium animate-shake">
-          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
+      {/* Main POS 2-Column Split: Left Cart & Billing | Right Search & Catalog */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* LEFT COLUMN: Items in Cart & Totals (60% width on desktop) */}
+        <div className="flex-1 lg:w-7/12 flex flex-col border-r border-charcoal-200 bg-white overflow-hidden">
+          {/* Customer & Patient Bar */}
+          <div className="p-3 border-b border-charcoal-200 bg-cream-50/70 shrink-0 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded font-mono font-bold text-[11px] bg-brand-50 text-brand-700 border border-brand-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+                  COUNTER: C1 (POS)
+                </span>
+                <span className="text-charcoal-600 font-medium text-[11px] truncate max-w-[220px]">
+                  {currentBranch?.name || 'Main Dispensary'}
+                </span>
+                {customerId ? (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Linked Patient
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-charcoal-100 text-charcoal-600">
+                    Walk-in Patient
+                  </span>
+                )}
+              </div>
 
-      {/* Main Grid: Left (Customer & Items) vs Right (Summary & Checkout) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 cols) */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Customer Details Box */}
-          <Card className="p-4 bg-white">
-            <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider mb-3">
-              1. Customer Information
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input
-                label="Customer Full Name *"
-                placeholder="e.g. Ramesh Kumar"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                required
-              />
-              <Input
-                label="Customer Phone Number *"
-                placeholder="e.g. 9876543210"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                required
-              />
-            </div>
-          </Card>
-
-          {/* Barcode & Medicine Search Box */}
-          <Card className="p-4 bg-white relative">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">
-                2. Scan Barcode or Search Medicine
-              </h3>
-              <div className="flex items-center gap-1.5 text-[11px] text-charcoal-500">
-                <Scan className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
-                <span>USB Scanner Ready</span>
+              <div className="flex items-center gap-1.5">
+                {customerDue > 0 && (
+                  <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                    Udhaar: {formatCurrency(customerDue)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={resetCustomer}
+                  className="px-2 py-1 text-[11px] font-medium text-charcoal-500 hover:text-charcoal-800 rounded hover:bg-cream-200/60 transition-colors flex items-center gap-1"
+                  title="Reset to Walk-in Customer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickCustomerModal(true)}
+                  className="px-2 py-1 text-[11px] font-semibold text-brand-700 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 rounded border border-brand-200 transition-colors flex items-center gap-1"
+                  title="Patient & Doctor Details (F7)"
+                >
+                  <UserPlus className="w-3.5 h-3.5 text-brand-600" />
+                  Details (F7)
+                </button>
               </div>
             </div>
 
-            <div className="relative">
-              <Input
-                ref={searchInputRef}
-                placeholder="Scan barcode or type Brand Name, Generic Composition, Manufacturer..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                leftIcon={<Search className="w-4 h-4" />}
-                autoComplete="off"
-              />
-
-              {/* Live search results dropdown */}
-              {searchResults.length > 0 && (
-                <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-charcoal-200 rounded-md shadow-lg z-20 max-h-64 overflow-y-auto">
-                  {searchResults.map((med) => {
-                    const inv = branchInventory.find(i => i.medicine_id === med.id);
-                    const stock = inv ? inv.stock_pieces : 0;
-                    const dual = formatDualUnitStock(stock, med.pieces_per_strip);
-                    const isOutOfStock = stock <= 0;
-
-                    return (
-                      <button
-                        key={med.id}
-                        type="button"
-                        onClick={() => addMedicineToCart(med)}
-                        disabled={isOutOfStock}
-                        className={`w-full text-left px-4 py-2.5 border-b border-charcoal-100 hover:bg-cream-50 flex items-center justify-between transition-colors ${
-                          isOutOfStock ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-charcoal-900">{med.brand_name}</span>
-                            <span className="text-[10px] text-charcoal-500">{med.strength}</span>
-                            <Badge variant="neutral" className="text-[10px] py-0">{med.dosage_form}</Badge>
-                          </div>
-                          <p className="text-[11px] text-charcoal-500">{med.generic_name} • {med.manufacturer}</p>
-                          {med.barcode && (
-                            <p className="text-[10px] font-mono text-charcoal-400">Barcode: {med.barcode}</p>
-                          )}
-                        </div>
-
-                        <div className="text-right">
-                          <div className="text-xs font-bold text-charcoal-900">
-                            {formatCurrency(med.strip_selling_price)} / strip
-                          </div>
-                          <div className="text-[10px] text-charcoal-600">
-                            ({formatCurrency(med.piece_selling_price)} / pc)
-                          </div>
-                          <div className="mt-0.5">
-                            <span className={`text-[10px] font-semibold ${isOutOfStock ? 'text-red-600 font-bold' : 'text-emerald-700'}`}>
-                              {isOutOfStock ? 'Out of Stock' : dual.display}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+            {/* Inputs: Customer Name, Phone (Optional), Age, Address */}
+            <div className="grid grid-cols-12 gap-2 items-center">
+              {/* Name */}
+              <div className="col-span-12 sm:col-span-4 relative">
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-charcoal-400">
+                  <User className="w-3.5 h-3.5" />
                 </div>
-              )}
-            </div>
-          </Card>
-
-          {/* Billing Cart Items Table */}
-          <Card className="bg-white overflow-hidden" noPadding>
-            <div className="px-5 py-3 border-b border-charcoal-100 bg-cream-50/50 flex items-center justify-between">
-              <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">
-                3. Invoice Items ({totalItemsCount})
-              </h3>
-              {cart.length > 0 && (
-                <button
-                  onClick={() => setCart([])}
-                  className="text-xs text-red-600 hover:text-red-700 font-semibold"
-                >
-                  Clear Cart
-                </button>
-              )}
-            </div>
-
-            {cart.length === 0 ? (
-              <div className="p-8">
-                <EmptyState
-                  title="Cart is currently empty"
-                  description="Scan a medicine barcode or use search bar above to add items to bill."
+                <input
+                  type="text"
+                  placeholder="Customer / Patient Name..."
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full h-8 pl-8 pr-2.5 text-xs rounded border border-charcoal-300 bg-white font-semibold text-charcoal-900 placeholder:text-charcoal-400 placeholder:font-normal focus:outline-none focus:ring-1 focus:ring-brand-500 transition-shadow"
                 />
               </div>
+
+              {/* Phone (Optional) */}
+              <div className="col-span-6 sm:col-span-3 relative">
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-charcoal-400">
+                  <Phone className="w-3.5 h-3.5" />
+                </div>
+                <input
+                  type="tel"
+                  placeholder="Phone (Optional)..."
+                  value={customerPhone}
+                  onChange={(e) => handlePhoneLookup(e.target.value)}
+                  maxLength={15}
+                  className="w-full h-8 pl-8 pr-2.5 text-xs rounded border border-charcoal-300 font-mono bg-white text-charcoal-800 placeholder:text-charcoal-400 placeholder:font-sans focus:outline-none focus:ring-1 focus:ring-brand-500 transition-shadow"
+                />
+              </div>
+
+              {/* Age (Optional) */}
+              <div className="col-span-6 sm:col-span-2 relative">
+                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none text-charcoal-400">
+                  <Calendar className="w-3 h-3" />
+                </div>
+                <input
+                  type="number"
+                  placeholder="Age (Yrs)"
+                  min={0}
+                  max={125}
+                  value={customerAge}
+                  onChange={(e) => setCustomerAge(e.target.value)}
+                  className="w-full h-8 pl-6 pr-2 text-xs rounded border border-charcoal-300 bg-white text-charcoal-800 placeholder:text-charcoal-400 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-shadow"
+                />
+              </div>
+
+              {/* Address (Optional) */}
+              <div className="col-span-12 sm:col-span-3 relative">
+                <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-charcoal-400">
+                  <MapPin className="w-3.5 h-3.5" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Address / Locality (Optional)..."
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  className="w-full h-8 pl-8 pr-2.5 text-xs rounded border border-charcoal-300 bg-white text-charcoal-800 placeholder:text-charcoal-400 focus:outline-none focus:ring-1 focus:ring-brand-500 transition-shadow"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cart Items Scrollable Table */}
+          <div className="flex-1 overflow-y-auto p-2">
+            {cart.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center p-8 text-center text-charcoal-400">
+                <Receipt className="w-12 h-12 mb-3 text-charcoal-300 stroke-1" />
+                <p className="font-semibold text-charcoal-700">Billing Cart is Empty</p>
+                <p className="text-xs text-charcoal-400 mt-1 max-w-xs">
+                  Scan barcode with USB scanner, or press <b>F1</b> to search medicines by brand, generic, or composition.
+                </p>
+              </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                      <th className="py-2.5 px-4">Medicine Item</th>
-                      <th className="py-2.5 px-3">Available Stock</th>
-                      <th className="py-2.5 px-3 w-28">Quantity</th>
-                      <th className="py-2.5 px-3 w-32">Unit Selector</th>
-                      <th className="py-2.5 px-3 text-right">Unit Price</th>
-                      <th className="py-2.5 px-4 text-right">Line Total</th>
-                      <th className="py-2.5 px-2 text-center w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-charcoal-100">
-                    {cart.map((item, idx) => {
-                      const dual = formatDualUnitStock(item.available_pieces, item.medicine.pieces_per_strip);
-                      const isStockExceeded = item.required_pieces > item.available_pieces;
-
-                      return (
-                        <tr key={item.medicine.id} className={isStockExceeded ? 'bg-red-50/60' : 'hover:bg-cream-50/50'}>
-                          <td className="py-3 px-4">
-                            <span className="font-bold text-charcoal-900 block">{item.medicine.brand_name}</span>
-                            <span className="text-[10px] text-charcoal-500">
-                              {item.medicine.generic_name} ({item.medicine.pieces_per_strip} pcs/strip)
-                            </span>
-                          </td>
-
-                          <td className="py-3 px-3">
-                            <span className="text-xs font-medium text-charcoal-700 block">
-                              {dual.display}
-                            </span>
-                            {isStockExceeded && (
-                              <span className="text-[10px] font-bold text-red-600 block">
-                                Exceeds by {item.required_pieces - item.available_pieces} pcs!
-                              </span>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-cream-100 text-charcoal-700 sticky top-0 z-10">
+                  <tr className="border-b border-charcoal-200">
+                    <th className="p-2 font-bold">Item Description</th>
+                    <th className="p-2 font-bold text-center">Batch / Exp</th>
+                    <th className="p-2 font-bold text-center">Unit</th>
+                    <th className="p-2 font-bold text-center">Qty</th>
+                    <th className="p-2 font-bold text-right">Price</th>
+                    <th className="p-2 font-bold text-right">Total</th>
+                    <th className="p-2 text-center w-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-charcoal-100">
+                  {cart.map((item, index) => {
+                    const isScheduleH = item.medicine.drug_schedule !== 'otc';
+                    return (
+                      <tr key={item.medicine.id} className="hover:bg-cream-50/60 transition-colors">
+                        <td className="p-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-charcoal-900">{item.medicine.brand_name}</span>
+                            {item.medicine.drug_schedule && item.medicine.drug_schedule !== 'otc' && (
+                              <Badge variant={item.medicine.drug_schedule} size="sm">
+                                {item.medicine.drug_schedule.replace('_', ' ').toUpperCase()}
+                              </Badge>
                             )}
-                          </td>
-
-                          {/* ONE Quantity Input */}
-                          <td className="py-3 px-3">
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={item.unit_quantity || ''}
-                              onChange={(e) => handleQuantityChange(idx, e.target.value)}
-                              className={`w-20 px-2 py-1 text-xs font-semibold rounded border focus:outline-none focus:ring-1 ${
-                                isStockExceeded 
-                                  ? 'border-red-400 bg-red-50 text-red-800 focus:ring-red-500' 
-                                  : 'border-charcoal-300 focus:ring-brand-400'
-                              }`}
-                            />
-                          </td>
-
-                          {/* ONE Unit Selector (Strip / Piece) */}
-                          <td className="py-3 px-3">
-                            <select
-                              value={item.selected_unit}
-                              onChange={(e) => handleUnitChange(idx, e.target.value as 'strip' | 'piece')}
-                              className="w-28 px-2 py-1 text-xs font-semibold rounded border border-charcoal-300 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400 cursor-pointer"
-                            >
-                              <option value="strip">Strip / Packet</option>
-                              <option value="piece">Piece (Loose)</option>
-                            </select>
-                          </td>
-
-                          <td className="py-3 px-3 text-right font-medium text-charcoal-700">
-                            {formatCurrency(item.unit_price)}
-                          </td>
-
-                          <td className="py-3 px-4 text-right font-bold text-charcoal-900 text-sm">
-                            {formatCurrency(item.item_total)}
-                          </td>
-
-                          <td className="py-3 px-2 text-center">
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-charcoal-500 mt-0.5">
+                            <span>{item.medicine.generic_name}</span>
+                            <span>•</span>
                             <button
                               type="button"
-                              onClick={() => removeItem(idx)}
-                              className="p-1 text-charcoal-400 hover:text-red-600 rounded"
-                              title="Remove item"
+                              onClick={() => handleFindSubstitutes(item.medicine)}
+                              className="text-brand-600 hover:underline flex items-center gap-0.5 font-semibold"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Sparkles className="w-3 h-3" />
+                              Subs
                             </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+                          {item.warning && (
+                            <span className="inline-block text-[10px] text-amber-700 bg-amber-50 px-1 rounded border border-amber-200 mt-0.5">
+                              {item.warning}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Batch & Expiry */}
+                        <td className="p-2 text-center">
+                          <span className="font-mono font-semibold text-charcoal-800 block">
+                            {item.selectedBatch?.batch_number || 'AUTO-FEFO'}
+                          </span>
+                          <span className="text-[10px] text-charcoal-500 block">
+                            Exp: {item.selectedBatch?.expiry_date || '—'}
+                          </span>
+                        </td>
+
+                        {/* Unit Toggle: Strip / Piece */}
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newUnit = item.selected_unit === 'strip' ? 'piece' : 'strip';
+                              const newPrice = newUnit === 'strip' ? item.medicine.strip_selling_price : item.medicine.piece_selling_price;
+                              const updated = [...cart];
+                              updated[index] = {
+                                ...item,
+                                selected_unit: newUnit,
+                                unit_price: newPrice,
+                                item_total: Number((newPrice * item.unit_quantity).toFixed(2)),
+                              };
+                              setCart(updated);
+                            }}
+                            className="px-2 py-0.5 text-[11px] font-bold rounded border border-charcoal-300 hover:border-brand-500 bg-white shadow-xs uppercase tracking-wider"
+                            title="Toggle Unit (F2)"
+                          >
+                            {item.selected_unit}
+                          </button>
+                        </td>
+
+                        {/* Quantity Counter */}
+                        <td className="p-2 text-center">
+                          <div className="inline-flex items-center border border-charcoal-300 rounded bg-white shadow-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.unit_quantity > 1) {
+                                  const updated = [...cart];
+                                  updated[index].unit_quantity -= 1;
+                                  updated[index].item_total = Number((item.unit_price * updated[index].unit_quantity).toFixed(2));
+                                  setCart(updated);
+                                }
+                              }}
+                              className="px-1.5 py-1 text-charcoal-600 hover:bg-cream-100"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="px-2 font-bold font-mono text-charcoal-900 min-w-[24px]">
+                              {item.unit_quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...cart];
+                                updated[index].unit_quantity += 1;
+                                updated[index].item_total = Number((item.unit_price * updated[index].unit_quantity).toFixed(2));
+                                setCart(updated);
+                              }}
+                              className="px-1.5 py-1 text-charcoal-600 hover:bg-cream-100"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* Unit Price */}
+                        <td className="p-2 text-right font-mono text-charcoal-700">
+                          ₹{item.unit_price.toFixed(2)}
+                        </td>
+
+                        {/* Line Total */}
+                        <td className="p-2 text-right font-mono font-bold text-charcoal-900">
+                          ₹{item.item_total.toFixed(2)}
+                        </td>
+
+                        {/* Delete Row */}
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setCart((prev) => prev.filter((_, i) => i !== index))}
+                            className="text-charcoal-400 hover:text-rose-600 p-1 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Bottom Totals & Payment Bar */}
+          <div className="border-t border-charcoal-200 bg-cream-50/80 p-4 shrink-0 space-y-3">
+            {errorMessage && (
+              <div className="p-2 rounded bg-rose-50 border border-rose-300 text-rose-800 text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{errorMessage}</span>
               </div>
             )}
-          </Card>
+
+            <div className="flex items-center justify-between text-xs text-charcoal-600 border-b border-charcoal-200 pb-2">
+              <div>
+                <span>Taxable: <b>{formatCurrency(totals.subtotalTaxable)}</b></span>
+                <span className="mx-2">•</span>
+                <span>GST: <b>{formatCurrency(totals.totalGst)}</b></span>
+                {totals.roundOff !== 0 && (
+                  <>
+                    <span className="mx-2">•</span>
+                    <span>Round-off: <b>{totals.roundOff > 0 ? `+${totals.roundOff}` : totals.roundOff}</b></span>
+                  </>
+                )}
+              </div>
+              <div className="text-right">
+                <span className="text-sm font-bold text-charcoal-900">
+                  Payable: <span className="text-xl text-brand-600 font-mono">{formatCurrency(totals.grandTotal)}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Cash Tender & Change Return Display */}
+            {paymentMethod === 'cash' && (
+              <div className="flex items-center justify-between gap-3 bg-white p-2.5 rounded-md border border-charcoal-200 shadow-2xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-charcoal-700">Cash Received:</span>
+                  <input
+                    type="number"
+                    step="1"
+                    placeholder="e.g. 500"
+                    value={cashTendered}
+                    onChange={(e) => setCashTendered(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                    className="h-8 w-28 px-2.5 text-xs font-mono font-bold bg-cream-50 border border-charcoal-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                  <div className="flex items-center gap-1">
+                    {[100, 200, 500].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setCashTendered(amt)}
+                        className="px-2 py-0.5 text-[10px] font-mono font-semibold rounded bg-cream-100 hover:bg-cream-200 text-charcoal-700 border border-charcoal-200"
+                      >
+                        ₹{amt}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setCashTendered(totals.grandTotal)}
+                      className="px-2 py-0.5 text-[10px] font-semibold rounded bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200"
+                    >
+                      Exact
+                    </button>
+                  </div>
+                </div>
+
+                {cashTendered !== '' && (
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] text-charcoal-500 block leading-none">Change to Return:</span>
+                    <span
+                      className={`text-sm font-mono font-bold ${
+                        cashTendered >= totals.grandTotal ? 'text-emerald-700' : 'text-rose-600'
+                      }`}
+                    >
+                      {cashTendered >= totals.grandTotal
+                        ? formatCurrency(cashTendered - totals.grandTotal)
+                        : `Short: -${formatCurrency(totals.grandTotal - cashTendered)}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* UPI & Card Reference Number Input */}
+            {(paymentMethod === 'card' || paymentMethod === 'upi') && (
+              <div className="flex items-center gap-2 bg-white p-2.5 rounded-md border border-charcoal-200 shadow-2xs">
+                <span className="text-xs font-semibold text-charcoal-700 shrink-0">
+                  {paymentMethod === 'card' ? 'Card Slip / Auth Ref:' : 'UPI UTR / Trans ID:'}
+                </span>
+                <input
+                  type="text"
+                  placeholder={paymentMethod === 'card' ? 'e.g. SLIP-904128' : 'e.g. UTR-301928412'}
+                  value={paymentRefNumber}
+                  onChange={(e) => setPaymentRefNumber(e.target.value)}
+                  className="h-8 flex-1 px-2.5 text-xs font-mono bg-cream-50 border border-charcoal-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500"
+                />
+              </div>
+            )}
+
+            {/* Payment Mode Selector & Instant Checkout */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <div className="flex rounded-md border border-charcoal-300 p-0.5 bg-white shadow-xs shrink-0">
+                {(['cash', 'upi', 'card', 'credit'] as PaymentMethod[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setPaymentMethod(mode)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded uppercase tracking-wider transition-all ${
+                      paymentMethod === mode
+                        ? 'bg-brand-500 text-white shadow-xs'
+                        : 'text-charcoal-600 hover:text-charcoal-900'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => setIsSplitModalOpen(true)}
+                className="text-xs"
+              >
+                Split (F8)
+              </Button>
+
+              <Button
+                variant="primary"
+                size="lg"
+                isLoading={isSubmitting}
+                disabled={cart.length === 0}
+                onClick={() => handleCheckout()}
+                className="flex-1 font-bold tracking-wide"
+              >
+                Charge {formatCurrency(totals.grandTotal)} (F9)
+              </Button>
+            </div>
+          </div>
         </div>
 
-        {/* Right Column: Payment Method & Total Payable Checkout */}
-        <div className="space-y-4">
-          <Card className="p-5 bg-white space-y-5 sticky top-20">
-            <div>
-              <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider mb-2">
-                4. Payment Method
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('cash')}
-                  className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-bold transition-all ${
-                    paymentMethod === 'cash'
-                      ? 'bg-charcoal-800 text-brand-400 border-charcoal-900 shadow-xs'
-                      : 'bg-white text-charcoal-700 border-charcoal-200 hover:bg-cream-50'
-                  }`}
-                >
-                  <Banknote className="w-5 h-5 mb-1 text-brand-400" />
-                  CASH
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('upi')}
-                  className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-bold transition-all ${
-                    paymentMethod === 'upi'
-                      ? 'bg-charcoal-800 text-brand-400 border-charcoal-900 shadow-xs'
-                      : 'bg-white text-charcoal-700 border-charcoal-200 hover:bg-cream-50'
-                  }`}
-                >
-                  <QrCode className="w-5 h-5 mb-1 text-brand-400" />
-                  UPI / QR
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('card')}
-                  className={`flex flex-col items-center justify-center p-3 rounded border text-xs font-bold transition-all ${
-                    paymentMethod === 'card'
-                      ? 'bg-charcoal-800 text-brand-400 border-charcoal-900 shadow-xs'
-                      : 'bg-white text-charcoal-700 border-charcoal-200 hover:bg-cream-50'
-                  }`}
-                >
-                  <CreditCard className="w-5 h-5 mb-1 text-brand-400" />
-                  CARD
-                </button>
+        {/* RIGHT COLUMN: Search Bar & Fast Medicine Browser (40% width) */}
+        <div className="lg:w-5/12 bg-white flex flex-col overflow-hidden">
+          {/* F1 Quick Search Bar */}
+          <div className="p-3 border-b border-charcoal-200 bg-cream-50/40">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-charcoal-400">
+                <Search className="w-4 h-4" />
               </div>
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search Medicine (Brand, Generic, Salt, Barcode)... [F1]"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-scanner-input="true"
+                className="h-10 w-full rounded-md border border-charcoal-300 pl-9 pr-4 text-sm text-charcoal-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 shadow-xs"
+              />
             </div>
+          </div>
 
-            {/* Bill Summary Breakdown */}
-            <div className="border-t border-charcoal-100 pt-4 space-y-2 text-xs">
-              <div className="flex justify-between text-charcoal-600">
-                <span>Items in Cart:</span>
-                <span className="font-semibold text-charcoal-900">{totalItemsCount} medicines</span>
-              </div>
-              <div className="flex justify-between text-charcoal-600">
-                <span>Tax Breakdown:</span>
-                <span className="font-medium">Inclusive of GST</span>
-              </div>
-            </div>
+          {/* Search Results / Fast Selection Catalog */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {(searchResults.length > 0 ? searchResults : allMedicines.slice(0, 20)).map((med) => {
+              const medBatches = batches.filter((b) => b.medicine_id === med.id && b.is_active && b.stock_pieces > 0);
+              const totalStockPieces = medBatches.reduce((acc, curr) => acc + curr.stock_pieces, 0);
 
-            {/* SIMPLIFIED ACTUAL PAYABLE AMOUNT */}
-            <div className="p-4 bg-cream-100/70 rounded-md border border-charcoal-200 text-center">
-              <span className="text-xs font-bold text-charcoal-600 uppercase tracking-wider block mb-1">
-                Total Amount Payable
-              </span>
-              <span className="text-3xl font-extrabold text-charcoal-900 font-sans tracking-tight">
-                {formatCurrency(totalAmountPayable)}
-              </span>
-            </div>
+              return (
+                <div
+                  key={med.id}
+                  onClick={() => addMedicineToCart(med)}
+                  className="p-3 border border-charcoal-200 hover:border-brand-400 rounded-lg bg-white hover:bg-cream-50/50 cursor-pointer transition-all shadow-xs flex items-center justify-between gap-3 group"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-charcoal-900 group-hover:text-brand-600 truncate">
+                        {med.brand_name}
+                      </span>
+                      {med.drug_schedule && med.drug_schedule !== 'otc' && (
+                        <Badge variant={med.drug_schedule} size="sm">
+                          {med.drug_schedule.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-charcoal-500 truncate mt-0.5">
+                      {med.generic_name} • {med.packaging_label}
+                    </p>
+                  </div>
 
-            {/* Complete Bill Button */}
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              className="w-full text-base py-3"
-              disabled={cart.length === 0 || isSubmitting}
-              isLoading={isSubmitting}
-              onClick={handleCompleteBill}
-            >
-              <Receipt className="w-5 h-5 mr-2" />
-              Complete Bill & Print
-            </Button>
-
-            <div className="text-[11px] text-charcoal-400 text-center leading-relaxed">
-              Atomic transaction locks inventory and generates official GST invoice sequence.
-            </div>
-          </Card>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-sm text-charcoal-900 block">
+                      ₹{med.strip_selling_price.toFixed(2)}
+                    </span>
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        totalStockPieces > 20 ? 'text-emerald-700' : totalStockPieces > 0 ? 'text-amber-700' : 'text-rose-600'
+                      }`}
+                    >
+                      {totalStockPieces > 0 ? `${totalStockPieces} pcs` : 'Out of stock'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Invoice Print Modal */}
+      {/* GENERIC SUBSTITUTES DRAWER */}
+      <Drawer
+        isOpen={showSubstituteModal}
+        onClose={() => setShowSubstituteModal(false)}
+        title="Generic Medicine Substitutes"
+        subtitle={`Alternative brands for ${selectedMedForSub?.brand_name} (Same salt & strength)`}
+        width="md"
+        footer={<Button onClick={() => setShowSubstituteModal(false)}>Close</Button>}
+      >
+        <div className="space-y-3">
+          <div className="p-3 bg-cream-100 rounded-lg text-xs">
+            <span className="text-charcoal-500 block">Active Composition:</span>
+            <span className="font-bold text-charcoal-900">{selectedMedForSub?.composition || 'No composition registered'}</span>
+          </div>
+
+          {substituteOptions.length === 0 ? (
+            <div className="text-center py-8 text-charcoal-500 text-xs">
+              No direct generic substitutes found with identical composition.
+            </div>
+          ) : (
+            substituteOptions.map((sub) => {
+              const diff = sub.strip_selling_price - (selectedMedForSub?.strip_selling_price || 0);
+              return (
+                <div
+                  key={sub.id}
+                  onClick={() => {
+                    addMedicineToCart(sub);
+                    setShowSubstituteModal(false);
+                  }}
+                  className="p-3 border border-charcoal-200 rounded-lg bg-white hover:border-brand-400 cursor-pointer flex items-center justify-between"
+                >
+                  <div>
+                    <span className="font-bold text-sm text-charcoal-900">{sub.brand_name}</span>
+                    <span className="text-xs text-charcoal-500 block">{sub.manufacturer}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-sm block">₹{sub.strip_selling_price.toFixed(2)}</span>
+                    <span className={`text-[10px] font-bold ${diff < 0 ? 'text-emerald-600' : 'text-charcoal-500'}`}>
+                      {diff < 0 ? `Saves ₹${Math.abs(diff).toFixed(2)}` : diff === 0 ? 'Same price' : `+₹${diff.toFixed(2)}`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </Drawer>
+
+      {/* QUICK CUSTOMER ADD MODAL */}
+      <Modal
+        isOpen={showQuickCustomerModal}
+        onClose={() => setShowQuickCustomerModal(false)}
+        title="Patient & Customer Details"
+        subtitle="Save contact, age, address, and credit information"
+        maxWidth="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowQuickCustomerModal(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (customerName && customerName.trim() && customerName !== 'Walk-in Customer') {
+                  try {
+                    const cust = await repositories.customers.createCustomer({
+                      name: customerName.trim(),
+                      phone: customerPhone.trim() || undefined,
+                      age: customerAge.trim() ? parseInt(customerAge.trim(), 10) : undefined,
+                      address: customerAddress.trim() || undefined,
+                      gstin: customerGstin.trim() || undefined,
+                      credit_limit: customerLimit,
+                      outstanding_balance: 0,
+                      loyalty_points: 0,
+                      is_active: true,
+                    });
+                    setCustomerId(cust.id);
+                    setShowQuickCustomerModal(false);
+                  } catch (e) {
+                    setShowQuickCustomerModal(false);
+                  }
+                } else {
+                  setShowQuickCustomerModal(false);
+                }
+              }}
+            >
+              Save & Link
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input label="Customer / Patient Full Name *" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Phone Number (Optional)" placeholder="10-digit mobile" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+            <Input type="number" label="Age (Years, Optional)" placeholder="e.g. 35" min={0} max={125} value={customerAge} onChange={(e) => setCustomerAge(e.target.value)} />
+          </div>
+          <Input label="Address / Locality (Optional)" placeholder="e.g. 14/B Park Road, Hazratganj, Lucknow" value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input type="number" label="Credit Limit (₹)" value={customerLimit} onChange={(e) => setCustomerLimit(parseFloat(e.target.value) || 0)} />
+            <Input label="Customer GSTIN (Optional)" placeholder="e.g. 09ABCDE1234F1Z5" value={customerGstin} onChange={(e) => setCustomerGstin(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Doctor Name (Optional)" placeholder="e.g. Dr. S.K. Srivastava" value={doctorName} onChange={(e) => setDoctorName(e.target.value)} />
+            <Input label="Doctor Reg No (Optional)" placeholder="e.g. MCI-12345" value={doctorRegNo} onChange={(e) => setDoctorRegNo(e.target.value)} />
+          </div>
+        </div>
+      </Modal>
+
+      {/* SPLIT PAYMENT MODAL */}
+      {(() => {
+        const splitAllocated = Number((splitCash + splitUpi + splitCard + splitCredit).toFixed(2));
+        const splitDiff = Number((totals.grandTotal - splitAllocated).toFixed(2));
+        const isSplitValid = Math.abs(splitDiff) < 0.05 && splitAllocated > 0;
+
+        return (
+          <Modal
+            isOpen={isSplitModalOpen}
+            onClose={() => setIsSplitModalOpen(false)}
+            title="Split Payment (Multiple Modes)"
+            subtitle={`Total bill amount: ${formatCurrency(totals.grandTotal)}`}
+            maxWidth="sm"
+            footer={
+              <>
+                <Button variant="outline" onClick={() => setIsSplitModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!isSplitValid}
+                  onClick={() => {
+                    const splits: PaymentSplit[] = [];
+                    if (splitCash > 0) splits.push({ method: 'cash', amount: splitCash });
+                    if (splitUpi > 0) splits.push({ method: 'upi', amount: splitUpi });
+                    if (splitCard > 0) splits.push({ method: 'card', amount: splitCard });
+                    if (splitCredit > 0) splits.push({ method: 'credit', amount: splitCredit });
+
+                    setPaymentSplits(splits);
+                    setPaymentMethod('split');
+                    setIsSplitModalOpen(false);
+                    handleCheckout('split');
+                  }}
+                >
+                  Confirm Split & Charge
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <Input
+                type="number"
+                label="Cash Amount (₹)"
+                value={splitCash}
+                onChange={(e) => setSplitCash(parseFloat(e.target.value) || 0)}
+              />
+              <Input
+                type="number"
+                label="UPI / QR Amount (₹)"
+                value={splitUpi}
+                onChange={(e) => setSplitUpi(parseFloat(e.target.value) || 0)}
+              />
+              <Input
+                type="number"
+                label="Card Amount (₹)"
+                value={splitCard}
+                onChange={(e) => setSplitCard(parseFloat(e.target.value) || 0)}
+              />
+              <Input
+                type="number"
+                label="Credit / Udhaar Amount (₹)"
+                value={splitCredit}
+                onChange={(e) => setSplitCredit(parseFloat(e.target.value) || 0)}
+              />
+
+              <div
+                className={`p-2.5 rounded text-xs flex justify-between font-bold border transition-colors ${
+                  isSplitValid
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-rose-50 text-rose-800 border-rose-300'
+                }`}
+              >
+                <span>Allocated: {formatCurrency(splitAllocated)}</span>
+                <span>
+                  {isSplitValid
+                    ? 'Target 100% Matched'
+                    : splitDiff > 0
+                    ? `Remaining: ${formatCurrency(splitDiff)}`
+                    : `Excess: ${formatCurrency(Math.abs(splitDiff))}`}
+                </span>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* CAMERA BARCODE SCANNER MODAL */}
+      <CameraScannerModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onScan={async (barcode) => {
+          const med = await repositories.medicines.getMedicineByBarcode(barcode);
+          if (med) {
+            addMedicineToCart(med);
+          } else {
+            setErrorMessage(`Barcode "${barcode}" not recognized.`);
+            setTimeout(() => setErrorMessage(null), 3000);
+          }
+        }}
+      />
+
+      {/* INVOICE PRINT MODAL */}
       <InvoicePrintModal
         invoice={completedInvoice}
         isOpen={showPrintModal}
@@ -642,3 +1201,4 @@ export const PosBilling: React.FC = () => {
     </div>
   );
 };
+export default PosBilling;

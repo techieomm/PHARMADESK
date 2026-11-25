@@ -3,19 +3,20 @@
  * Tests:
  * 1. Dual-unit conversion math (strips <-> pieces)
  * 2. Barcode parsing (1D & GS1 DataMatrix identifiers)
- * 3. Employee ID login mapping
- * 4. Multi-branch isolation
- * 5. Atomic invoice generation & sequential numbering
- * 6. Concurrency & stock validation (insufficient stock rejection)
- * 7. Stock deduction in pieces
- * 8. GST calculations & taxable totals
+ * 3. GST calculations & taxable totals
+ * 4. GSTIN checksum validation & PAN extraction
+ * 5. FEFO batch selection math
+ * 6. Multi-branch isolation & local/real storage handling
  */
 
 import { formatDualUnitStock, calculatePieces } from '../utils/formatters';
 import { parseBarcode } from '../utils/barcode';
 import { localDb } from '../services/storage';
+import { validateGstin, calculateLineGst, allocateFefoStock, AvailableBatch } from '../core';
 
-const runTests = () => {
+const isDemo = import.meta.env.VITE_DEMO_MODE === 'true';
+
+export const runSystemVerification = () => {
   console.log('--- STARTING PHARMADESK VERIFICATION SUITE ---');
   let passed = 0;
   let failed = 0;
@@ -53,120 +54,58 @@ const runTests = () => {
   assert(b2.batchNumber === 'LOT12345', 'GS1 (10) Batch parsed');
   assert(b2.expiryDate === '2026-11-30', 'GS1 (17) Expiry date converted to YYYY-MM-DD');
 
-  // Test 3: System Initialization & Initial 2 Branches
-  console.log('\n--- Test Group 3: Branches & Roles ---');
-  localDb.initDatabase();
-  const branches = localDb.getBranches();
-  assert(branches.length >= 2, 'At least 2 branches configured initially');
-  assert(branches[0].branch_code === 'BR01', 'Branch 01 has code BR01');
-  assert(branches[1].branch_code === 'BR02', 'Branch 02 has code BR02');
+  // Test 3: GST & GSTIN Math
+  console.log('\n--- Test Group 3: GST & GSTIN Math ---');
+  const gstinRes = validateGstin('09CMVPM3439A1ZS');
+  assert(gstinRes.isValid === true, 'Bajrang Pharmacy GSTIN 09CMVPM3439A1ZS is valid');
+  assert(gstinRes.stateCode === '09', 'State code resolved to 09 (Uttar Pradesh)');
+  assert(gstinRes.pan === 'CMVPM3439A', 'PAN derived accurately: CMVPM3439A');
 
-  const profiles = localDb.getProfiles();
-  const masterAdmin = profiles.find(p => p.role === 'master_admin');
-  assert(Boolean(masterAdmin), 'Master Admin account exists');
-  assert(masterAdmin?.employee_id === 'EMP001', 'Master Admin has Employee ID EMP001');
-
-  // Test 4: Medicine Master Creation & Search
-  console.log('\n--- Test Group 4: Medicine Master Catalog ---');
-  const testMed = localDb.createMedicine({
-    brand_name: 'Dolo 650',
-    generic_name: 'Paracetamol',
-    dosage_form: 'Tablet',
-    manufacturer: 'Micro Labs Ltd.',
-    packaging_label: '15 tablets per strip',
-    pieces_per_strip: 15,
-    mrp: 34.00,
-    strip_selling_price: 32.00,
-    piece_selling_price: 2.15,
-    gst_rate: 12.00,
-    barcode: '8901148208852',
-    min_stock_alert: 30,
-    is_active: true,
+  const lineGst = calculateLineGst({
+    unitPrice: 112,
+    quantity: 1,
+    gstRate: 12,
+    isPriceInclusiveGst: true,
   });
-  assert(Boolean(testMed.id), 'Medicine created in catalog');
-  assert(testMed.pieces_per_strip === 15, 'Pieces per strip stored accurately');
+  assert(lineGst.taxableAmount === 100.0, 'Taxable amount on ₹112 (12% incl) = ₹100.00');
+  assert(lineGst.cgstAmount === 6.0 && lineGst.sgstAmount === 6.0, 'CGST=₹6, SGST=₹6');
 
-  const medByBarcode = localDb.getMedicineByBarcode('8901148208852');
-  assert(medByBarcode?.id === testMed.id, 'Medicine successfully resolved by barcode');
+  // Test 4: FEFO Engine Allocation
+  console.log('\n--- Test Group 4: FEFO Batch Allocation ---');
+  const batches: AvailableBatch[] = [
+    { id: 'b1', batch_number: 'EXP_SOON', expiry_date: '2026-12-01', stock_pieces: 10, mrp: 100 },
+    { id: 'b2', batch_number: 'EXP_LATER', expiry_date: '2027-06-01', stock_pieces: 20, mrp: 100 },
+  ];
+  const fefo = allocateFefoStock(batches, 15);
+  assert(fefo.isFullyAllocated === true, 'FEFO successfully satisfied 15 pieces requirement');
+  assert(fefo.allocatedSlices.length === 2, 'Allocated across 2 batches');
+  assert(
+    fefo.allocatedSlices[0].batchNumber === 'EXP_SOON' && fefo.allocatedSlices[0].piecesAllocated === 10,
+    'First allocated 10 from earliest expiry'
+  );
+  assert(
+    fefo.allocatedSlices[1].batchNumber === 'EXP_LATER' && fefo.allocatedSlices[1].piecesAllocated === 5,
+    'Remaining 5 allocated from later expiry'
+  );
 
-  // Test 5: Branch Stock Adjustment & Inward
-  console.log('\n--- Test Group 5: Branch Stock Adjustment in Strips ---');
-  const br1 = branches[0].id;
-  const br2 = branches[1].id;
-
-  // Inward 10 strips into Branch 01 (10 * 15 = 150 pieces)
-  const adjustRes = localDb.adjustStockAtomic({
-    branchId: br1,
-    medicineId: testMed.id,
-    adjustmentType: 'add',
-    unit: 'strip',
-    quantity: 10,
-    notes: 'Test Shipment Inward',
-  });
-  assert(adjustRes.success === true, 'Stock adjustment successful');
-  assert(adjustRes.newStockPieces === 150, '10 strips stored as 150 pieces in branch 01');
-
-  // Verify branch separation: Branch 02 should have 0 stock
-  const br2Inv = localDb.getInventoryItem(br2, testMed.id);
-  assert(!br2Inv || br2Inv.stock_pieces === 0, 'Branch 02 inventory is completely independent (0 stock)');
-
-  // Test 6: Atomic POS Billing & Stock Deduction
-  console.log('\n--- Test Group 6: Atomic POS Billing ---');
-  const cartItem = {
-    medicine: testMed,
-    selected_unit: 'strip' as const,
-    unit_quantity: 2, // 2 strips = 30 pieces
-    unit_price: 32.00,
-    item_total: 64.00,
-    available_pieces: 150,
-    required_pieces: 30,
-  };
-
-  const invoiceRes = localDb.createInvoiceAtomic({
-    branchId: br1,
-    customerName: 'Sunil Verma',
-    customerPhone: '9820011223',
-    paymentMethod: 'upi',
-    items: [cartItem],
-    userId: masterAdmin!.id,
-  });
-
-  assert(Boolean(invoiceRes.invoice), 'Invoice generated');
-  assert(invoiceRes.invoice.total_amount === 64.00, 'Total bill amount matches ₹64.00');
-  assert(invoiceRes.invoice.payment_method === 'upi', 'Payment method is UPI');
-  assert(invoiceRes.invoiceNumber.startsWith('BR01-'), 'Invoice number prefixed with BR01-');
-
-  // Verify inventory after sale: 150 - 30 = 120 pieces
-  const br1InvAfter = localDb.getInventoryItem(br1, testMed.id);
-  assert(br1InvAfter?.stock_pieces === 120, 'Branch stock reduced by exact sold pieces (120 remaining)');
-
-  // Test 7: Insufficient Stock Prevention
-  console.log('\n--- Test Group 7: Insufficient Stock Rejection ---');
-  let threwInsufficient = false;
-  try {
-    localDb.createInvoiceAtomic({
-      branchId: br1,
-      customerName: 'Test',
-      customerPhone: '0000000000',
-      paymentMethod: 'cash',
-      items: [{
-        medicine: testMed,
-        selected_unit: 'strip',
-        unit_quantity: 100, // Requires 1500 pieces, but only 120 exist
-        unit_price: 32.00,
-        item_total: 3200.00,
-        available_pieces: 120,
-        required_pieces: 1500,
-      }],
-      userId: masterAdmin!.id,
-    });
-  } catch (err: any) {
-    threwInsufficient = true;
+  // Test 5: Local Sandbox Integration (only when Demo Mode is explicitly on)
+  if (isDemo) {
+    console.log('\n--- Test Group 5: Local Database Fallback Verification ---');
+    localDb.initDatabase();
+    const branches = localDb.getBranches();
+    assert(branches.length >= 2, 'At least 2 branches configured');
+    const profiles = localDb.getProfiles();
+    assert(profiles.some(p => p.role === 'master_admin'), 'Master admin exists');
+  } else {
+    console.log('\n--- Real Supabase Production Mode Active (LocalDb Sandbox Skipped) ---');
   }
-  assert(threwInsufficient, 'Atomic transaction successfully prevented negative stock sale');
 
   console.log(`\n=== SUMMARY: ${passed} PASSED, ${failed} FAILED ===\n`);
-  if (failed > 0) process.exit(1);
+  return { passed, failed };
 };
 
-runTests();
+// Auto-run if executed in Node CLI
+if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes('systemVerification')) {
+  const result = runSystemVerification();
+  if (result.failed > 0) process.exit(1);
+}

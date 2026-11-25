@@ -3,7 +3,8 @@ import { Invoice, PrintFormat } from '@/types';
 import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/common/Button';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { Printer, Download, CheckCircle2 } from 'lucide-react';
+import { numberToIndianWords } from '@/core';
+import { Printer, Download, CheckCircle2, Share2, QrCode } from 'lucide-react';
 import { exportToPdf } from '@/utils/exporter';
 
 interface InvoicePrintModalProps {
@@ -26,17 +27,35 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     window.print();
   };
 
+  const amountInWords = numberToIndianWords(invoice.total_amount);
+
+  // Dynamic Indian UPI Payment String
+  const upiPayString = `upi://pay?pa=bajrangpharmacy@okhdfcbank&pn=Bajrang%20Pharmacy&am=${invoice.total_amount.toFixed(2)}&cu=INR&tn=Bill-${invoice.invoice_number}`;
+  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiPayString)}`;
+
+  const handleShareWhatsApp = () => {
+    const ageStr = invoice.customer_age ? ` (Age: ${invoice.customer_age} Y)` : '';
+    const addrStr = invoice.customer_address ? `\nAddress: ${invoice.customer_address}` : '';
+    const text = `*Bajrang Pharmacy - Tax Invoice*\nInvoice No: ${invoice.invoice_number}\nDate: ${formatDate(invoice.invoice_date)}\nCustomer: ${invoice.customer_name}${ageStr}${addrStr}\nTotal Amount: ₹${invoice.total_amount.toFixed(2)}\nThank you for choosing Bajrang Pharmacy, Lucknow!`;
+    const cleanPhone = invoice.customer_phone ? invoice.customer_phone.replace(/[^0-9]/g, '') : '';
+    const phoneParam = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const url = phoneParam ? `https://wa.me/${phoneParam}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
   const handleDownloadPdf = () => {
     if (!invoice || !invoice.items) return;
-    const headers = ['#', 'Medicine', 'Unit', 'Qty', 'Unit Price', 'GST %', 'Taxable', 'Total'];
+    const headers = ['#', 'Medicine', 'Batch', 'Exp', 'HSN', 'Unit', 'Qty', 'Rate', 'GST%', 'Total'];
     const rows = invoice.items.map((item, idx) => [
       idx + 1,
       item.medicine_name,
+      item.batch_number || '—',
+      item.expiry_date || '—',
+      item.hsn_code || '3004',
       item.selected_unit === 'strip' ? 'Strip' : 'Piece',
       item.unit_quantity,
       `₹${item.unit_price.toFixed(2)}`,
       `${item.gst_rate}%`,
-      `₹${item.taxable_amount.toFixed(2)}`,
       `₹${item.total_amount.toFixed(2)}`,
     ]);
 
@@ -45,7 +64,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
       headers,
       rows,
       `Invoice_${invoice.invoice_number}`,
-      invoice.branch?.name || 'PharmaDesk Healthcare'
+      invoice.branch?.name || 'Bajrang Pharmacy'
     );
   };
 
@@ -54,21 +73,23 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={`Tax Invoice — ${invoice.invoice_number}`}
+      subtitle="GST compliant tax invoice for retail pharmacy"
       maxWidth="lg"
       footer={
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+        <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-semibold">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Bill recorded atomically in database</span>
+            <span>Bill recorded atomically (FEFO applied)</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleDownloadPdf}>
-              <Download className="w-3.5 h-3.5 mr-1" />
-              Download PDF
+          <div className="flex items-center flex-wrap gap-2">
+            <Button variant="outline" size="sm" leftIcon={<Share2 className="w-3.5 h-3.5" />} onClick={handleShareWhatsApp}>
+              WhatsApp
             </Button>
-            <Button variant="primary" size="sm" onClick={handlePrint}>
-              <Printer className="w-3.5 h-3.5 mr-1" />
-              Print Receipt
+            <Button variant="outline" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownloadPdf}>
+              PDF
+            </Button>
+            <Button variant="primary" size="sm" leftIcon={<Printer className="w-3.5 h-3.5" />} onClick={handlePrint}>
+              Print (Enter)
             </Button>
           </div>
         </div>
@@ -76,26 +97,26 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     >
       <div className="space-y-4">
         {/* Format Selector */}
-        <div className="flex items-center justify-between bg-cream-100 p-2 rounded border border-charcoal-200">
+        <div className="flex items-center justify-between bg-cream-100 p-2 rounded-lg border border-charcoal-200">
           <span className="text-xs font-semibold text-charcoal-700 uppercase tracking-wide">
-            Select Output Format:
+            Print Format:
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setFormat('thermal_80mm')}
-              className={`text-xs px-2.5 py-1 rounded font-semibold transition-colors ${
+              className={`text-xs px-3 py-1.5 rounded-md font-semibold transition-all ${
                 format === 'thermal_80mm'
-                  ? 'bg-charcoal-800 text-white shadow-xs'
+                  ? 'bg-charcoal-900 text-white shadow-xs'
                   : 'bg-white text-charcoal-700 hover:bg-cream-50 border border-charcoal-200'
               }`}
             >
-              80mm Thermal POS
+              80mm Thermal
             </button>
             <button
               onClick={() => setFormat('thermal_58mm')}
-              className={`text-xs px-2.5 py-1 rounded font-semibold transition-colors ${
+              className={`text-xs px-3 py-1.5 rounded-md font-semibold transition-all ${
                 format === 'thermal_58mm'
-                  ? 'bg-charcoal-800 text-white shadow-xs'
+                  ? 'bg-charcoal-900 text-white shadow-xs'
                   : 'bg-white text-charcoal-700 hover:bg-cream-50 border border-charcoal-200'
               }`}
             >
@@ -103,58 +124,68 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
             </button>
             <button
               onClick={() => setFormat('a4')}
-              className={`text-xs px-2.5 py-1 rounded font-semibold transition-colors ${
+              className={`text-xs px-3 py-1.5 rounded-md font-semibold transition-all ${
                 format === 'a4'
-                  ? 'bg-charcoal-800 text-white shadow-xs'
+                  ? 'bg-charcoal-900 text-white shadow-xs'
                   : 'bg-white text-charcoal-700 hover:bg-cream-50 border border-charcoal-200'
               }`}
             >
-              A4 Full Page
+              A4 GST Invoice
             </button>
           </div>
         </div>
 
-        {/* Invoice Preview Container (Print Target) */}
-        <div className="overflow-x-auto bg-gray-50 p-4 rounded border border-charcoal-200 flex justify-center">
+        {/* Printable Area */}
+        <div className="overflow-x-auto bg-charcoal-100/50 p-4 rounded-lg border border-charcoal-200 flex justify-center">
           <div
             ref={printAreaRef}
             id="printable-invoice"
-            className={`bg-white text-black font-mono shadow-sm border border-gray-300 p-4 transition-all ${
+            className={`bg-white text-black font-mono shadow-sm border border-charcoal-200 p-4 transition-all ${
               format === 'thermal_58mm'
                 ? 'w-[58mm] text-[10px]'
                 : format === 'thermal_80mm'
                 ? 'w-[80mm] text-[11px]'
-                : 'w-full max-w-2xl text-xs font-sans p-8'
+                : 'w-full max-w-3xl text-xs font-sans p-8'
             }`}
           >
-            {/* Business / Branch Header */}
-            <div className="text-center pb-2 border-b border-dashed border-gray-400">
-              <h2 className="font-bold text-sm tracking-wide uppercase">
-                {invoice.branch?.name || 'PharmaDesk Central'}
+            {/* Business Header */}
+            <div className="text-center pb-2 border-b border-dashed border-charcoal-400">
+              <h2 className="font-bold text-base tracking-wide uppercase">
+                {invoice.branch?.name || 'BAJRANG PHARMACY'}
               </h2>
-              <p className="text-[10px] text-gray-700 mt-0.5">{invoice.branch?.address}</p>
-              <p className="text-[10px] text-gray-700">Phone: {invoice.branch?.phone}</p>
-              {invoice.branch?.gstin && (
-                <p className="text-[10px] font-bold">GSTIN: {invoice.branch.gstin}</p>
-              )}
-              {invoice.branch?.drug_license && (
-                <p className="text-[10px]">D.L. No: {invoice.branch.drug_license}</p>
-              )}
-              <div className="mt-1 pt-1 border-t border-dotted border-gray-300 font-bold uppercase text-[11px]">
-                RETAIL TAX INVOICE
+              <p className="text-[10px] text-charcoal-700 mt-0.5">{invoice.branch?.address || 'Shop 12-14, Hazratganj, Lucknow, UP 226001'}</p>
+              <p className="text-[10px] text-charcoal-700">Phone: {invoice.branch?.phone || '+91 522 261 4001'}</p>
+              <p className="text-[10px] font-bold">GSTIN: {invoice.branch?.gstin || '09CMVPM3439A1ZS'} (UP 09)</p>
+              <p className="text-[9px]">D.L. No: {invoice.branch?.drug_license || 'UP-LKO-20B-10928 & UP-LKO-21B-10929'}</p>
+              <div className="mt-1 pt-1 border-t border-dotted border-charcoal-300 font-bold uppercase text-[11px]">
+                TAX INVOICE
               </div>
             </div>
 
             {/* Bill & Customer Metadata */}
-            <div className="py-2 text-[10px] border-b border-dashed border-gray-400 space-y-0.5">
+            <div className="py-2 text-[10px] border-b border-dashed border-charcoal-400 space-y-0.5">
               <div className="flex justify-between">
                 <span>Inv No: <b>{invoice.invoice_number}</b></span>
                 <span>Date: {formatDate(invoice.invoice_date, false)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Customer: {invoice.customer_name}</span>
-                <span>Phone: {invoice.customer_phone}</span>
+              <div className="flex justify-between items-baseline">
+                <span>
+                  Customer: <b>{invoice.customer_name}</b>
+                  {invoice.customer_age ? <span className="text-charcoal-600 font-mono text-[9px] ml-1">({invoice.customer_age} Yrs)</span> : null}
+                </span>
+                {invoice.customer_phone ? <span>Mob: {invoice.customer_phone}</span> : <span className="text-charcoal-400 text-[9px]">Walk-in</span>}
               </div>
+              {invoice.customer_address && (
+                <div className="text-charcoal-600 text-[9px] truncate">
+                  Address: <b>{invoice.customer_address}</b>
+                </div>
+              )}
+              {invoice.customer_gstin && (
+                <div>Customer GSTIN: <b>{invoice.customer_gstin}</b></div>
+              )}
+              {invoice.doctor_name && (
+                <div>Doctor: <b>{invoice.doctor_name}</b></div>
+              )}
               <div className="flex justify-between">
                 <span>Pay Mode: <b className="uppercase">{invoice.payment_method}</b></span>
                 <span>Time: {new Date(invoice.invoice_date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -162,62 +193,98 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
             </div>
 
             {/* Itemized Table */}
-            <div className="py-2 border-b border-dashed border-gray-400">
-              <div className="flex justify-between font-bold text-[10px] pb-1 border-b border-dotted border-gray-300 mb-1">
-                <span className="w-6/12">Item</span>
-                <span className="w-2/12 text-center">Unit/Qty</span>
-                <span className="w-2/12 text-right">Price</span>
-                <span className="w-2/12 text-right">Total</span>
+            <div className="py-2 border-b border-dashed border-charcoal-400">
+              <div className="flex justify-between font-bold text-[10px] pb-1 border-b border-dotted border-charcoal-300 mb-1">
+                <span className="w-5/12">Item (Batch/Exp)</span>
+                <span className="w-2/12 text-center">Qty</span>
+                <span className="w-2/12 text-right">Rate</span>
+                <span className="w-3/12 text-right">Amount</span>
               </div>
 
               {invoice.items && invoice.items.map((it, idx) => (
-                <div key={idx} className="flex justify-between py-0.5 text-[10px] leading-tight">
-                  <div className="w-6/12 truncate pr-1">
-                    <span className="font-semibold">{it.medicine_name}</span>
-                    <span className="text-[9px] text-gray-500 block">GST {it.gst_rate}%</span>
+                <div key={idx} className="flex justify-between py-1 text-[10px] leading-tight border-b border-dotted border-charcoal-100 last:border-none">
+                  <div className="w-5/12 pr-1">
+                    <span className="font-semibold block truncate">{it.medicine_name}</span>
+                    <span className="text-[8px] text-charcoal-500 block">
+                      B: {it.batch_number || 'N/A'} | Exp: {it.expiry_date || 'N/A'} | HSN: {it.hsn_code || '3004'}
+                    </span>
                   </div>
-                  <div className="w-2/12 text-center">
+                  <div className="w-2/12 text-center self-center">
                     {it.unit_quantity} {it.selected_unit === 'strip' ? 'str' : 'pc'}
                   </div>
-                  <div className="w-2/12 text-right">
+                  <div className="w-2/12 text-right self-center">
                     ₹{it.unit_price.toFixed(2)}
                   </div>
-                  <div className="w-2/12 text-right font-medium">
+                  <div className="w-3/12 text-right font-medium self-center">
                     ₹{it.total_amount.toFixed(2)}
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Totals & GST Summary */}
-            <div className="py-2 text-[10px] border-b border-dashed border-gray-400 space-y-1">
+            {/* Totals & Tax Breakup */}
+            <div className="py-2 text-[10px] border-b border-dashed border-charcoal-400 space-y-1">
               <div className="flex justify-between">
-                <span>Taxable Amount:</span>
+                <span>Subtotal (Taxable):</span>
                 <span>{formatCurrency(invoice.subtotal_taxable)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>CGST:</span>
-                <span>{formatCurrency(invoice.cgst_amount)}</span>
+              {invoice.is_interstate ? (
+                <div className="flex justify-between">
+                  <span>IGST:</span>
+                  <span>{formatCurrency(invoice.igst_amount)}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span>CGST:</span>
+                    <span>{formatCurrency(invoice.cgst_amount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>SGST:</span>
+                    <span>{formatCurrency(invoice.sgst_amount)}</span>
+                  </div>
+                </>
+              )}
+              {invoice.discount_amount > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>Discount:</span>
+                  <span>-{formatCurrency(invoice.discount_amount)}</span>
+                </div>
+              )}
+              {invoice.round_off !== undefined && invoice.round_off !== 0 && (
+                <div className="flex justify-between text-charcoal-500">
+                  <span>Round Off:</span>
+                  <span>{invoice.round_off > 0 ? `+${invoice.round_off.toFixed(2)}` : invoice.round_off.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-xs pt-1.5 border-t border-dotted border-charcoal-400">
+                <span>GRAND TOTAL:</span>
+                <span className="text-sm font-sans">{formatCurrency(invoice.total_amount)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>SGST:</span>
-                <span>{formatCurrency(invoice.sgst_amount)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Total GST:</span>
-                <span>{formatCurrency(invoice.total_gst)}</span>
-              </div>
-              <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-gray-400">
-                <span>NET PAYABLE:</span>
-                <span className="text-sm">{formatCurrency(invoice.total_amount)}</span>
+              <div className="text-[9px] text-charcoal-600 italic pt-0.5">
+                Amount in Words: {amountInWords}
               </div>
             </div>
 
-            {/* Footer / Legal Notes */}
-            <div className="text-center pt-2 text-[9px] text-gray-600 leading-tight">
-              <p className="font-medium">Thank you for visiting PharmaDesk!</p>
-              <p>Prescribed medicines cannot be returned without prescription & bill.</p>
-              <p className="mt-1 font-mono text-[8px]">System-generated authenticated invoice.</p>
+            {/* Dynamic UPI QR Code for instant counter payment */}
+            <div className="py-3 text-center flex flex-col items-center justify-center border-b border-dashed border-charcoal-400">
+              <span className="text-[9px] font-bold uppercase tracking-wider mb-1">
+                Scan UPI QR to Pay Exact Amount
+              </span>
+              <img
+                src={upiQrUrl}
+                alt="UPI QR Code"
+                className="w-24 h-24 border border-charcoal-300 rounded p-1 bg-white"
+              />
+              <span className="text-[8px] text-charcoal-500 mt-1 font-mono">bajrangpharmacy@okhdfcbank</span>
+            </div>
+
+            {/* Statutory Terms & Footer */}
+            <div className="text-center pt-2 text-[8px] text-charcoal-600 leading-tight">
+              <p className="font-semibold text-charcoal-800">Thank you for visiting Bajrang Pharmacy!</p>
+              <p className="mt-0.5">1. Schedule H/H1 medicines dispensed against valid prescription only.</p>
+              <p>2. Goods once sold cannot be returned without original cash memo within 7 days.</p>
+              <p className="mt-1 font-mono text-[7px] text-charcoal-400">Authenticated system generated tax invoice.</p>
             </div>
           </div>
         </div>
@@ -225,3 +292,4 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
     </Modal>
   );
 };
+export default InvoicePrintModal;

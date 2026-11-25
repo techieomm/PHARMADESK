@@ -1,12 +1,15 @@
 import React from 'react';
+import { clsx } from 'clsx';
 import { Button } from './Button';
 
-interface EmptyStateProps {
+export interface EmptyStateProps {
   icon?: React.ReactNode;
   title: string;
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
   className?: string;
 }
 
@@ -16,22 +19,31 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   description,
   actionLabel,
   onAction,
-  className = '',
+  secondaryActionLabel,
+  onSecondaryAction,
+  className,
 }) => {
   return (
-    <div className={`text-center py-12 px-4 rounded-md border border-dashed border-charcoal-200 bg-white/60 ${className}`}>
+    <div className={clsx('text-center py-12 px-6 rounded-lg border-2 border-dashed border-charcoal-200 bg-white/70 flex flex-col items-center justify-center', className)}>
       {icon && (
-        <div className="mx-auto w-12 h-12 flex items-center justify-center rounded-full bg-cream-100 text-brand-600 mb-3">
+        <div className="w-12 h-12 flex items-center justify-center rounded-full bg-cream-100 text-brand-600 mb-3.5 border border-cream-200">
           {icon}
         </div>
       )}
-      <h3 className="text-base font-semibold text-charcoal-800">{title}</h3>
-      <p className="mt-1 text-sm text-charcoal-500 max-w-sm mx-auto">{description}</p>
-      {actionLabel && onAction && (
-        <div className="mt-4">
-          <Button onClick={onAction} size="sm">
-            {actionLabel}
-          </Button>
+      <h3 className="text-base font-bold text-charcoal-900 tracking-tight">{title}</h3>
+      <p className="mt-1 text-sm text-charcoal-500 max-w-sm leading-relaxed">{description}</p>
+      {(actionLabel || secondaryActionLabel) && (
+        <div className="mt-5 flex items-center gap-3">
+          {secondaryActionLabel && onSecondaryAction && (
+            <Button onClick={onSecondaryAction} variant="outline" size="sm">
+              {secondaryActionLabel}
+            </Button>
+          )}
+          {actionLabel && onAction && (
+            <Button onClick={onAction} variant="primary" size="sm">
+              {actionLabel}
+            </Button>
+          )}
         </div>
       )}
     </div>

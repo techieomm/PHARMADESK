@@ -23,6 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment
+# Environment & Secrets (Never commit credentials)
 .env
 .env.production
+.env.local
+scripts/.env.local
+*.local

@@ -3,11 +3,17 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { inventoryService, medicineService } from '@/services/api';
 import { StockMovement, Medicine } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { EmptyState } from '@/components/common/EmptyState';
+import { 
+  Card, 
+  Button, 
+  Input, 
+  Select, 
+  Badge, 
+  EmptyState, 
+  PageHeader, 
+  Toolbar, 
+  Skeleton 
+} from '@/components/common';
 import { formatDate } from '@/utils/formatters';
 import { exportToExcel } from '@/utils/exporter';
 import { 
@@ -121,88 +127,63 @@ export const StockOperations: React.FC = () => {
       'Reference': m.reference_id || '',
       'Notes': m.notes || '',
     }));
-    exportToExcel(exportData, 'PharmaDesk_Stock_Movements', 'Movements');
+    exportToExcel(exportData, 'BajrangPharmacy_Stock_Movements', 'Movements');
   };
 
   const filteredMovements = movements.filter(m => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const medName = m.medicine?.brand_name?.toLowerCase() || '';
-      const notes = m.notes?.toLowerCase() || '';
+      const n = m.notes?.toLowerCase() || '';
       const ref = m.reference_id?.toLowerCase() || '';
-      return medName.includes(q) || notes.includes(q) || ref.includes(q);
+      return medName.includes(q) || n.includes(q) || ref.includes(q);
     }
     return true;
   });
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Stock Operations & Movements</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Audit movements for every sale, purchase inward, and stock reconciliation.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {user?.role === 'master_admin' && (
-            <div className="flex items-center gap-1.5 bg-white border border-charcoal-200 rounded px-2.5 py-1">
-              <Building2 className="w-3.5 h-3.5 text-charcoal-500" />
-              <select
-                value={selectedBranchFilter}
-                onChange={(e) => setSelectedBranchFilter(e.target.value)}
-                className="text-xs font-semibold text-charcoal-800 bg-transparent focus:outline-none cursor-pointer"
-              >
-                <option value="all">All Branches</option>
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-            Export History
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Stock Operations & Movements"
+        subtitle="Audit stock movements for every sale, purchase inward, and reconciliation."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="md" onClick={handleExport} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
+              Export History
+            </Button>
+          </div>
+        }
+      />
 
       {/* Quick Stock Inward / Restock Panel */}
-      <Card className="p-5 bg-white">
+      <Card className="bg-white">
         <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider mb-3 flex items-center gap-2">
           <PlusCircle className="w-4 h-4 text-brand-600" />
-          Quick Stock Inward (Restock)
+          Quick Stock Inward (Restock Entry)
         </h3>
 
         {statusMsg && (
-          <div className={`p-3 mb-4 rounded text-xs font-medium ${statusMsg.error ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
+          <div className={`p-3 mb-4 rounded-md text-xs font-medium ${statusMsg.error ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
             {statusMsg.text}
           </div>
         )}
 
         <form onSubmit={handleQuickRestock} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
           <div className="lg:col-span-2">
-            <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-              Select Medicine
-            </label>
-            <select
+            <Select
+              label="Select Medicine *"
               value={selectedMedId}
               onChange={(e) => setSelectedMedId(e.target.value)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              {medicines.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.brand_name} ({m.strength || m.dosage_form}) - {m.pieces_per_strip} pcs/strip
-                </option>
-              ))}
-            </select>
+              options={medicines.map(m => ({
+                value: m.id,
+                label: `${m.brand_name} (${m.strength || m.dosage_form}) - ${m.pieces_per_strip} pcs/strip`
+              }))}
+            />
           </div>
 
           <div>
             <Input
-              label="Quantity"
+              label="Quantity *"
               type="number"
               min="1"
               value={restockQty}
@@ -212,17 +193,15 @@ export const StockOperations: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-              Unit
-            </label>
-            <select
+            <Select
+              label="Unit *"
               value={restockUnit}
               onChange={(e) => setRestockUnit(e.target.value as any)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="strip">Strips</option>
-              <option value="piece">Loose Pieces</option>
-            </select>
+              options={[
+                { value: 'strip', label: 'Strips / Packs' },
+                { value: 'piece', label: 'Loose Pieces' },
+              ]}
+            />
           </div>
 
           <div>
@@ -242,29 +221,46 @@ export const StockOperations: React.FC = () => {
         </form>
       </Card>
 
-      {/* Movement History Table */}
-      <Card className="bg-white overflow-hidden" noPadding>
-        <div className="px-5 py-3 border-b border-charcoal-100 flex items-center justify-between">
-          <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">
-            Stock Movement Audit Trail
-          </h3>
-          <div className="w-72">
-            <Input
-              placeholder="Search movements..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              leftIcon={<Search className="w-4 h-4" />}
-            />
-          </div>
+      {/* Filter Toolbar */}
+      <Toolbar>
+        <div className="flex-1 min-w-[240px]">
+          <Input
+            placeholder="Search movement audit log by medicine name, reference ID, notes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<Search className="w-4 h-4" />}
+          />
         </div>
 
+        {user?.role === 'master_admin' && (
+          <div className="w-52">
+            <Select
+              size="md"
+              value={selectedBranchFilter}
+              onChange={(e) => setSelectedBranchFilter(e.target.value)}
+              options={[
+                { value: 'all', label: 'All Branches (Consolidated)' },
+                ...branches.map(b => ({ value: b.id, label: `${b.name} (${b.branch_code})` }))
+              ]}
+            />
+          </div>
+        )}
+      </Toolbar>
+
+      {/* Movement History Table */}
+      <Card className="bg-white overflow-hidden" noPadding>
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-charcoal-500">Loading audit trail...</div>
+          <div className="p-6 space-y-3">
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+          </div>
         ) : filteredMovements.length === 0 ? (
           <div className="p-8">
             <EmptyState
+              icon={<ArrowLeftRight className="w-8 h-8 text-charcoal-400" />}
               title="No stock movements recorded"
-              description="Stock movements are logged automatically when sales are completed, stock is inwarded, or adjustments are made."
+              description="Every stock movement (sale deduction, return restocking, adjustment) will be audited here."
             />
           </div>
         ) : (
@@ -272,64 +268,54 @@ export const StockOperations: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                  <th className="py-2.5 px-4">Date & Time</th>
-                  <th className="py-2.5 px-3">Medicine Item</th>
-                  <th className="py-2.5 px-3">Movement Type</th>
-                  <th className="py-2.5 px-3 text-right">Unit Entered</th>
-                  <th className="py-2.5 px-3 text-right">Quantity (Pieces)</th>
-                  <th className="py-2.5 px-3 text-right">Balance After</th>
-                  <th className="py-2.5 px-3">Reference / Notes</th>
-                  <th className="py-2.5 px-3">Operator</th>
+                  <th className="py-3 px-4">Timestamp</th>
+                  <th className="py-3 px-3">Medicine</th>
+                  <th className="py-3 px-3 text-center">Type</th>
+                  <th className="py-3 px-3 text-right">Unit Qty</th>
+                  <th className="py-3 px-3 text-right">Delta Pieces</th>
+                  <th className="py-3 px-3 text-right">Balance Pieces</th>
+                  <th className="py-3 px-3">Reference / Notes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-charcoal-100">
-                {filteredMovements.map((m) => {
-                  const isPositive = m.quantity_pieces > 0;
-                  return (
-                    <tr key={m.id} className="hover:bg-cream-50/50">
-                      <td className="py-3 px-4 text-charcoal-600 font-mono text-[11px]">
-                        {formatDate(m.created_at)}
-                      </td>
+                {filteredMovements.map((m) => (
+                  <tr key={m.id} className="hover:bg-cream-50/60 transition-colors">
+                    <td className="py-3 px-4 text-charcoal-600 font-mono">
+                      {formatDate(m.created_at)}
+                    </td>
 
-                      <td className="py-3 px-3">
-                        <span className="font-bold text-charcoal-900 block">{m.medicine?.brand_name || 'Medicine'}</span>
-                        <span className="text-[10px] text-charcoal-500">{m.medicine?.generic_name}</span>
-                      </td>
+                    <td className="py-3 px-3 font-bold text-charcoal-900">
+                      {m.medicine?.brand_name || 'Medicine'}
+                    </td>
 
-                      <td className="py-3 px-3">
-                        <Badge 
-                          variant={m.movement_type === 'sale' ? 'neutral' : isPositive ? 'success' : 'warning'}
-                          className="uppercase text-[10px] font-semibold"
-                        >
-                          {m.movement_type}
-                        </Badge>
-                      </td>
+                    <td className="py-3 px-3 text-center">
+                      <Badge 
+                        variant={m.quantity_pieces >= 0 ? 'success' : 'danger'} 
+                        size="sm"
+                        className="uppercase font-bold"
+                      >
+                        {m.movement_type}
+                      </Badge>
+                    </td>
 
-                      <td className="py-3 px-3 text-right text-charcoal-700 font-medium">
-                        {m.unit_quantity} {m.unit_used}
-                      </td>
+                    <td className="py-3 px-3 text-right font-medium text-charcoal-800">
+                      {m.unit_quantity} {m.unit_used}
+                    </td>
 
-                      <td className="py-3 px-3 text-right font-bold font-mono">
-                        <span className={isPositive ? 'text-emerald-700' : 'text-charcoal-800'}>
-                          {isPositive ? `+${m.quantity_pieces}` : m.quantity_pieces} pcs
-                        </span>
-                      </td>
+                    <td className={`py-3 px-3 text-right font-bold font-mono ${m.quantity_pieces >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                      {m.quantity_pieces >= 0 ? `+${m.quantity_pieces}` : m.quantity_pieces}
+                    </td>
 
-                      <td className="py-3 px-3 text-right font-bold text-charcoal-900 font-mono">
-                        {m.balance_after_pieces} pcs
-                      </td>
+                    <td className="py-3 px-3 text-right font-bold text-charcoal-900 font-mono">
+                      {m.balance_after_pieces} pcs
+                    </td>
 
-                      <td className="py-3 px-3 text-charcoal-600">
-                        {m.reference_id && <span className="font-mono font-medium block text-charcoal-800">{m.reference_id}</span>}
-                        <span className="text-[11px] text-charcoal-500">{m.notes || '-'}</span>
-                      </td>
-
-                      <td className="py-3 px-3 text-charcoal-700">
-                        {m.performer?.full_name || 'Staff'}
-                      </td>
-                    </tr>
-                  );
-                })}
+                    <td className="py-3 px-3 text-charcoal-600">
+                      <span className="font-mono text-[11px] block">{m.reference_id || '-'}</span>
+                      <span className="text-[10px] text-charcoal-500">{m.notes}</span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

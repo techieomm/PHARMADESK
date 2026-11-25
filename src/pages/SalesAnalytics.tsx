@@ -3,32 +3,30 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { billingService, medicineService } from '@/services/api';
 import { Invoice, Medicine } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { EmptyState } from '@/components/common/EmptyState';
+import { 
+  Card, 
+  StatCard, 
+  Button, 
+  Input, 
+  Select, 
+  Badge, 
+  EmptyState, 
+  PageHeader, 
+  Toolbar, 
+  Skeleton 
+} from '@/components/common';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { exportToExcel, exportToPdf } from '@/utils/exporter';
+import { exportToExcel } from '@/utils/exporter';
 import { 
   BarChart3, 
   Search, 
   FileSpreadsheet, 
-  Download, 
   Calendar, 
   Building2, 
   TrendingUp, 
   Percent,
   CheckCircle2
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  ResponsiveContainer 
-} from 'recharts';
 
 export const SalesAnalytics: React.FC = () => {
   const { user } = useAuth();
@@ -177,116 +175,113 @@ export const SalesAnalytics: React.FC = () => {
       'Purchase Cost (₹)': m.hasPurchaseCost ? m.purchaseCost : 'Not Recorded',
       'Gross Profit (₹)': m.hasPurchaseCost ? m.grossProfit : 'N/A',
     }));
-    exportToExcel(exportData, 'PharmaDesk_Sales_Analytics', 'Medicine_Sales');
+    exportToExcel(exportData, 'BajrangPharmacy_Sales_Analytics', 'Medicine_Sales');
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Sales Analytics & Profitability</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Deep dive financial metrics, medicine volume, and verifiable gross profit calculation.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-            Excel Export
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Sales Analytics & Profitability"
+        subtitle="Financial performance, medicine volume, and gross profit breakdown."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="md" onClick={handleExport} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
+              Export Analytics
+            </Button>
+          </div>
+        }
+      />
 
       {/* Advanced Filters */}
-      <Card className="p-4 bg-white">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div>
-            <label className="block text-[11px] font-bold text-charcoal-600 uppercase mb-1">Date Interval</label>
-            <select
+      <Toolbar>
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            placeholder="Search medicine name..."
+            value={medicineSearch}
+            onChange={(e) => setMedicineSearch(e.target.value)}
+            leftIcon={<Search className="w-3.5 h-3.5" />}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-44">
+            <Select
+              size="md"
               value={dateRange}
               onChange={(e) => setDateRange(e.target.value as any)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="today">Today</option>
-              <option value="yesterday">Yesterday</option>
-              <option value="7days">Last 7 Days</option>
-              <option value="30days">Last 30 Days</option>
-              <option value="this_month">This Month</option>
-              <option value="prev_month">Previous Month</option>
-              <option value="this_year">This Financial Year</option>
-              <option value="all">All Time Records</option>
-            </select>
+              options={[
+                { value: 'today', label: 'Today' },
+                { value: 'yesterday', label: 'Yesterday' },
+                { value: '7days', label: 'Last 7 Days' },
+                { value: '30days', label: 'Last 30 Days' },
+                { value: 'this_month', label: 'This Month' },
+                { value: 'prev_month', label: 'Previous Month' },
+                { value: 'this_year', label: 'This Financial Year' },
+                { value: 'all', label: 'All Records' },
+              ]}
+            />
           </div>
 
           {user?.role === 'master_admin' && (
-            <div>
-              <label className="block text-[11px] font-bold text-charcoal-600 uppercase mb-1">Branch</label>
-              <select
+            <div className="w-48">
+              <Select
+                size="md"
                 value={selectedBranchFilter}
                 onChange={(e) => setSelectedBranchFilter(e.target.value)}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                <option value="all">All Branches (Consolidated)</option>
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
-                ))}
-              </select>
+                options={[
+                  { value: 'all', label: 'All Branches (Consolidated)' },
+                  ...branches.map(b => ({ value: b.id, label: `${b.name} (${b.branch_code})` }))
+                ]}
+              />
             </div>
           )}
 
-          <div>
-            <label className="block text-[11px] font-bold text-charcoal-600 uppercase mb-1">Payment Method</label>
-            <select
+          <div className="w-40">
+            <Select
+              size="md"
               value={selectedPayment}
               onChange={(e) => setSelectedPayment(e.target.value)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="all">All Modes (Cash, UPI, Card)</option>
-              <option value="cash">Cash Only</option>
-              <option value="upi">UPI / QR Only</option>
-              <option value="card">Card Only</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-charcoal-600 uppercase mb-1">Filter Medicine</label>
-            <Input
-              placeholder="Search medicine name..."
-              value={medicineSearch}
-              onChange={(e) => setMedicineSearch(e.target.value)}
-              leftIcon={<Search className="w-3.5 h-3.5" />}
+              options={[
+                { value: 'all', label: 'All Payment Modes' },
+                { value: 'cash', label: 'Cash Only' },
+                { value: 'upi', label: 'UPI / QR Only' },
+                { value: 'card', label: 'Card Only' },
+              ]}
             />
           </div>
         </div>
-      </Card>
+      </Toolbar>
 
       {/* Financial Metrics Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 bg-white">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">Filtered Sales Revenue</span>
-          <p className="text-2xl font-bold text-charcoal-900 mt-1 font-sans">{formatCurrency(totalRevenue)}</p>
-          <span className="text-[10px] text-charcoal-500 mt-0.5 block">{totalInvoices} invoices in selection</span>
-        </Card>
+        <StatCard
+          label="Filtered Sales Revenue"
+          value={formatCurrency(totalRevenue)}
+          icon={<TrendingUp className="w-5 h-5 text-brand-600" />}
+          subtext={`${totalInvoices} invoices in selection`}
+          variant="default"
+        />
 
-        <Card className="p-4 bg-white">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">Taxable Subtotal</span>
-          <p className="text-2xl font-bold text-charcoal-900 mt-1 font-sans">{formatCurrency(totalTaxable)}</p>
-          <span className="text-[10px] text-charcoal-500 mt-0.5 block">Excluding GST liability</span>
-        </Card>
+        <StatCard
+          label="Taxable Subtotal"
+          value={formatCurrency(totalTaxable)}
+          subtext="Excluding GST liability"
+          variant="default"
+        />
 
-        <Card className="p-4 bg-white">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">Collected GST</span>
-          <p className="text-2xl font-bold text-charcoal-900 mt-1 font-sans">{formatCurrency(totalGst)}</p>
-          <span className="text-[10px] text-charcoal-500 mt-0.5 block">CGST + SGST tax output</span>
-        </Card>
+        <StatCard
+          label="Collected GST"
+          value={formatCurrency(totalGst)}
+          subtext="CGST + SGST tax output"
+          variant="success"
+        />
 
-        <Card className="p-4 bg-white">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">Average Ticket Size</span>
-          <p className="text-2xl font-bold text-charcoal-900 mt-1 font-sans">{formatCurrency(avgBill)}</p>
-          <span className="text-[10px] text-charcoal-500 mt-0.5 block">Revenue per invoice</span>
-        </Card>
+        <StatCard
+          label="Average Ticket Size"
+          value={formatCurrency(avgBill)}
+          subtext="Revenue per invoice"
+          variant="brand"
+        />
       </div>
 
       {/* Medicine Performance Table */}
@@ -310,18 +305,18 @@ export const SalesAnalytics: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                  <th className="py-2.5 px-4">#</th>
-                  <th className="py-2.5 px-3">Medicine Item</th>
-                  <th className="py-2.5 px-3 text-right">Units Sold</th>
-                  <th className="py-2.5 px-3 text-right">Revenue Generated</th>
-                  <th className="py-2.5 px-3 text-right">Recorded Cost</th>
-                  <th className="py-2.5 px-4 text-right">Gross Profit</th>
+                  <th className="py-3 px-4">#</th>
+                  <th className="py-3 px-3">Medicine Item</th>
+                  <th className="py-3 px-3 text-right">Units Sold</th>
+                  <th className="py-3 px-3 text-right">Revenue Generated</th>
+                  <th className="py-3 px-3 text-right">Recorded Cost</th>
+                  <th className="py-3 px-4 text-right">Gross Profit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-charcoal-100">
                 {medicinePerformance.map((med, idx) => (
-                  <tr key={med.id} className="hover:bg-cream-50/50">
-                    <td className="py-3 px-4 font-bold text-charcoal-400">{idx + 1}</td>
+                  <tr key={med.id} className="hover:bg-cream-50/60 transition-colors">
+                    <td className="py-3 px-4 font-bold text-charcoal-400 font-mono">{idx + 1}</td>
 
                     <td className="py-3 px-3">
                       <span className="font-bold text-charcoal-900 block">{med.brandName}</span>
@@ -332,15 +327,15 @@ export const SalesAnalytics: React.FC = () => {
                       {med.quantitySold} units
                     </td>
 
-                    <td className="py-3 px-3 text-right font-bold text-charcoal-900 text-sm">
+                    <td className="py-3 px-3 text-right font-bold text-charcoal-900 text-sm font-mono">
                       {formatCurrency(med.revenue)}
                     </td>
 
-                    <td className="py-3 px-3 text-right text-charcoal-600">
+                    <td className="py-3 px-3 text-right text-charcoal-600 font-mono">
                       {med.hasPurchaseCost ? formatCurrency(med.purchaseCost) : <span className="text-charcoal-400 italic">Not set</span>}
                     </td>
 
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4 text-right font-mono">
                       {med.hasPurchaseCost ? (
                         <span className={`font-bold ${med.grossProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                           {formatCurrency(med.grossProfit)}

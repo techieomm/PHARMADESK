@@ -5,8 +5,9 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Modal } from '@/components/common/Modal';
 import { authService } from '@/services/api';
-import { isSupabaseConfigured } from '@/lib/supabase';
-import { IdCard, Mail, Lock, AlertCircle, ShieldCheck } from 'lucide-react';
+import { isSupabaseConfigured, getSupabaseProjectRef } from '@/lib/supabase';
+import { IdCard, Mail, Lock, AlertCircle, ShieldCheck, Database, Eye, EyeOff } from 'lucide-react';
+import { SupabaseSetupModal } from '@/components/layout/SupabaseSetupModal';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -16,11 +17,13 @@ export const Login: React.FC = () => {
   const [employeeId, setEmployeeId] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Forgot password modal
   const [showForgotModal, setShowForgotModal] = useState(false);
+  const [showDbModal, setShowDbModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [isResetLoading, setIsResetLoading] = useState(false);
@@ -31,16 +34,28 @@ export const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
+      let loggedProfile;
       if (loginMethod === 'employeeId') {
-        if (!employeeId.trim()) throw new Error('Please enter your Employee ID');
+        const cleanInput = employeeId.trim();
+        if (!cleanInput) throw new Error('Please enter your Employee ID');
+        if (cleanInput.includes('@')) {
+          throw new Error('That looks like an email. Use the Email Address tab.');
+        }
         if (!password) throw new Error('Please enter your password');
-        await loginWithEmployeeId(employeeId, password);
+        loggedProfile = await loginWithEmployeeId(employeeId, password);
       } else {
         if (!email.trim()) throw new Error('Please enter your email address');
         if (!password) throw new Error('Please enter your password');
-        await loginWithEmail(email, password);
+        loggedProfile = await loginWithEmail(email, password);
       }
-      navigate('/');
+
+      if (loggedProfile?.role === 'billing_employee') {
+        navigate('/pos');
+      } else if (loggedProfile?.role === 'inventory_manager') {
+        navigate('/inventory');
+      } else {
+        navigate('/');
+      }
     } catch (err: any) {
       setError(err?.message || 'Login failed. Please check credentials.');
     } finally {
@@ -75,6 +90,12 @@ export const Login: React.FC = () => {
         <p className="mt-1 text-xs text-charcoal-500 font-medium tracking-wide uppercase">
           Authorized Pharmacy Portal & Billing Login
         </p>
+        {import.meta.env.DEV && (
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-cream-100 text-charcoal-600 border border-charcoal-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Connected to: <b>{getSupabaseProjectRef()}</b></span>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
@@ -119,12 +140,15 @@ export const Login: React.FC = () => {
               <Input
                 label="Employee ID"
                 type="text"
-                placeholder="e.g. EMP001"
+                placeholder="e.g. master-admin"
                 value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+                onChange={(e) => setEmployeeId(e.target.value)}
                 leftIcon={<IdCard className="w-4 h-4" />}
                 required
                 autoFocus
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
             ) : (
               <Input
@@ -153,11 +177,22 @@ export const Login: React.FC = () => {
                 </button>
               </div>
               <Input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 leftIcon={<Lock className="w-4 h-4" />}
+                rightIcon={
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-charcoal-400 hover:text-charcoal-700 focus:outline-none p-1"
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                }
                 required
               />
             </div>
@@ -172,21 +207,43 @@ export const Login: React.FC = () => {
             </Button>
           </form>
 
-          {/* Setup / First-time hint */}
-          <div className="mt-6 pt-5 border-t border-charcoal-100 text-xs text-charcoal-500 space-y-1.5">
-            <div className="flex items-center gap-1.5 font-semibold text-charcoal-700">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Default Master Admin Credential:</span>
+          {/* Setup / First-time hint (Rendered ONLY in Demo Mode) */}
+          {import.meta.env.VITE_DEMO_MODE === 'true' && (
+            <div className="mt-6 pt-5 border-t border-charcoal-100 text-xs text-charcoal-500 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-semibold text-charcoal-700">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Demo Mode Credentials:</span>
+                </div>
+              </div>
+              <p className="bg-cream-50 p-2 rounded border border-charcoal-200 font-mono text-[11px] text-charcoal-800">
+                Employee ID: <b>EMP001</b> | Pass: <b>admin123</b>
+              </p>
+              <p className="text-[11px] text-charcoal-400">
+                Local demo database active. In production mode, live Supabase credentials are used.
+              </p>
             </div>
-            <p className="bg-cream-50 p-2 rounded border border-charcoal-200 font-mono text-[11px] text-charcoal-800">
-              Employee ID: <b>EMP001</b> | Pass: <b>admin123</b>
-            </p>
-            <p className="text-[11px] text-charcoal-400">
-              Public registration is disabled. Master Admin assigns new staff accounts and sets initial credentials.
-            </p>
+          )}
+
+          {/* Database migrations link */}
+          <div className="mt-4 pt-3 border-t border-charcoal-100 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowDbModal(true)}
+              className="text-[11px] font-semibold text-charcoal-500 hover:text-brand-600 flex items-center gap-1 hover:underline"
+            >
+              <Database className="w-3 h-3" />
+              <span>DB Migrations & Schema Check</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Supabase Setup Modal */}
+      <SupabaseSetupModal
+        isOpen={showDbModal}
+        onClose={() => setShowDbModal(false)}
+      />
 
       {/* Forgot Password Modal */}
       <Modal

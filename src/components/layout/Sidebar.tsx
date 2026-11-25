@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { 
   LayoutDashboard, 
   ReceiptText, 
-  History, 
+  FileText, 
   Pill, 
   Boxes, 
   ArrowLeftRight, 
@@ -14,7 +14,15 @@ import {
   Users, 
   ScrollText, 
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  ShoppingCart,
+  Truck,
+  RotateCcw,
+  IndianRupee,
+  BookOpen,
+  Layers,
+  X,
+  AlertCircle
 } from 'lucide-react';
 
 interface NavItem {
@@ -22,145 +30,272 @@ interface NavItem {
   path: string;
   icon: React.ReactNode;
   allowedRoles: string[];
-  permissionKey?: string;
+  badge?: string;
+  badgeVariant?: 'brand' | 'warning' | 'danger';
 }
 
-export const Sidebar: React.FC = () => {
-  const { user, role, hasPermission } = useAuth();
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
 
-  const navItems: NavItem[] = [
+interface SidebarProps {
+  isOpenMobile?: boolean;
+  onCloseMobile?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  isOpenMobile = false,
+  onCloseMobile,
+}) => {
+  const { role } = useAuth();
+
+  const navSections: NavSection[] = [
     {
-      name: 'Dashboard',
-      path: '/',
-      icon: <LayoutDashboard className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+      title: 'Counter & Billing',
+      items: [
+        {
+          name: 'Dashboard',
+          path: '/',
+          icon: <LayoutDashboard className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+        {
+          name: 'POS Billing',
+          path: '/pos',
+          icon: <ReceiptText className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+          badge: 'F1-F12',
+        },
+        {
+          name: 'Invoice History',
+          path: '/invoices',
+          icon: <FileText className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+        },
+        {
+          name: 'Sales Returns',
+          path: '/returns',
+          icon: <RotateCcw className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+        },
+        {
+          name: 'Customers & Udhaar',
+          path: '/customers',
+          icon: <Users className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+        },
+      ],
     },
     {
-      name: 'POS Billing',
-      path: '/pos',
-      icon: <ReceiptText className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+      title: 'Inventory & Purchases',
+      items: [
+        {
+          name: 'Medicine Catalog',
+          path: '/medicines',
+          icon: <Pill className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'inventory_manager'],
+        },
+        {
+          name: 'Batch Inventory',
+          path: '/inventory',
+          icon: <Boxes className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager'],
+        },
+        {
+          name: 'Purchase Entries',
+          path: '/purchases',
+          icon: <ShoppingCart className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager'],
+        },
+        {
+          name: 'Suppliers & Ledger',
+          path: '/suppliers',
+          icon: <Truck className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'inventory_manager'],
+        },
+        {
+          name: 'Stock Operations',
+          path: '/stock-operations',
+          icon: <ArrowLeftRight className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'inventory_manager'],
+        },
+        {
+          name: 'Low Stock & Expiry',
+          path: '/low-stock',
+          icon: <AlertTriangle className="w-4 h-4 text-amber-600" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager'],
+        },
+      ],
     },
     {
-      name: 'Invoice History',
-      path: '/invoices',
-      icon: <History className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+      title: 'Accounts & Reports',
+      items: [
+        {
+          name: 'Day Book & Register',
+          path: '/day-book',
+          icon: <BookOpen className="w-4 h-4 text-brand-600" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+        {
+          name: 'Day Close & Cash',
+          path: '/day-close',
+          icon: <IndianRupee className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+        {
+          name: 'Discrepancies & Sync',
+          path: '/discrepancies',
+          icon: <AlertCircle className="w-4 h-4 text-rose-500" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+        {
+          name: 'Sales Analytics',
+          path: '/analytics',
+          icon: <BarChart3 className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+        {
+          name: 'GST Reports & CA',
+          path: '/reports',
+          icon: <FileSpreadsheet className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+        },
+      ],
     },
     {
-      name: 'Medicine Master',
-      path: '/medicines',
-      icon: <Pill className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'inventory_manager'],
-    },
-    {
-      name: 'Branch Inventory',
-      path: '/inventory',
-      icon: <Boxes className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager'],
-    },
-    {
-      name: 'Stock Operations',
-      path: '/stock-operations',
-      icon: <ArrowLeftRight className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'inventory_manager'],
-    },
-    {
-      name: 'Low Stock Alerts',
-      path: '/low-stock',
-      icon: <AlertTriangle className="w-4 h-4 text-amber-600" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager'],
-    },
-    {
-      name: 'Sales Analytics',
-      path: '/analytics',
-      icon: <BarChart3 className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
-    },
-    {
-      name: 'Reports & Exports',
-      path: '/reports',
-      icon: <FileSpreadsheet className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
-    },
-    {
-      name: 'Branches',
-      path: '/branches',
-      icon: <Building className="w-4 h-4" />,
-      allowedRoles: ['master_admin'],
-    },
-    {
-      name: 'Staff & Roles',
-      path: '/staff',
-      icon: <Users className="w-4 h-4" />,
-      allowedRoles: ['master_admin', 'sub_admin'],
-    },
-    {
-      name: 'Audit Logs',
-      path: '/audit-logs',
-      icon: <ScrollText className="w-4 h-4" />,
-      allowedRoles: ['master_admin'],
-    },
-    {
-      name: 'Settings',
-      path: '/settings',
-      icon: <Settings className="w-4 h-4" />,
-      allowedRoles: ['master_admin'],
+      title: 'Administration',
+      items: [
+        {
+          name: 'Branches',
+          path: '/branches',
+          icon: <Building className="w-4 h-4" />,
+          allowedRoles: ['master_admin'],
+        },
+        {
+          name: 'Staff & Roles',
+          path: '/staff',
+          icon: <Users className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin'],
+        },
+        {
+          name: 'Audit Trail',
+          path: '/audit-logs',
+          icon: <ScrollText className="w-4 h-4" />,
+          allowedRoles: ['master_admin'],
+        },
+        {
+          name: 'Settings',
+          path: '/settings',
+          icon: <Settings className="w-4 h-4" />,
+          allowedRoles: ['master_admin'],
+        },
+        {
+          name: 'UI Kit & Design',
+          path: '/dev/ui-kit',
+          icon: <Layers className="w-4 h-4 text-brand-500" />,
+          allowedRoles: ['master_admin'],
+          badge: 'DEV',
+          badgeVariant: 'brand',
+        },
+      ],
     },
   ];
 
-  // Filter items visible for user
-  const visibleItems = navItems.filter(item => {
-    if (!role) return false;
-    if (role === 'master_admin') return true;
-    if (role === 'sub_admin') {
-      if (item.path === '/' && hasPermission('view_branch_dashboard')) return true;
-      if (item.path === '/pos' && hasPermission('access_billing')) return true;
-      if (item.path === '/invoices' && hasPermission('view_invoices')) return true;
-      if (item.path === '/medicines' && hasPermission('manage_medicines')) return true;
-      if (item.path === '/inventory' && hasPermission('manage_inventory')) return true;
-      if (item.path === '/stock-operations' && hasPermission('manage_inventory')) return true;
-      if (item.path === '/low-stock' && hasPermission('manage_inventory')) return true;
-      if (item.path === '/analytics' && hasPermission('view_branch_reports')) return true;
-      if (item.path === '/reports' && hasPermission('view_branch_reports')) return true;
-      if (item.path === '/staff' && hasPermission('manage_permitted_employees')) return true;
-      return false;
-    }
-    return item.allowedRoles.includes(role);
-  });
+  const sidebarContent = (
+    <div className="flex flex-col h-full justify-between">
+      <div className="py-4 px-3 space-y-6 overflow-y-auto flex-1">
+        {navSections.map((sec) => {
+          const visibleItems = sec.items.filter((item) => {
+            if (!role) return false;
+            if (role === 'master_admin') return true;
+            return item.allowedRoles.includes(role);
+          });
 
-  return (
-    <aside className="w-60 bg-white border-r border-charcoal-200 flex flex-col justify-between h-[calc(100vh-4rem)] sticky top-16 select-none">
-      <div className="py-4 px-3 space-y-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-bold text-charcoal-400 tracking-wider uppercase">
-          Navigation
-        </div>
-        {visibleItems.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            end={item.path === '/'}
-            className={({ isActive }) => `
-              flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-md transition-colors
-              ${isActive 
-                ? 'bg-cream-100 text-charcoal-900 border-l-4 border-l-brand-400 font-bold pl-2 shadow-xs' 
-                : 'text-charcoal-600 hover:text-charcoal-900 hover:bg-cream-50'
-              }
-            `}
-          >
-            <span className="text-charcoal-500">{item.icon}</span>
-            <span>{item.name}</span>
-          </NavLink>
-        ))}
+          if (visibleItems.length === 0) return null;
+
+          return (
+            <div key={sec.title} className="space-y-1">
+              <div className="px-3 pb-1 text-[10px] font-bold text-charcoal-400 tracking-wider uppercase">
+                {sec.title}
+              </div>
+              {visibleItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === '/'}
+                  onClick={onCloseMobile}
+                  className={({ isActive }) => `
+                    flex items-center justify-between px-3 py-2 text-xs font-semibold rounded-md transition-colors
+                    ${isActive 
+                      ? 'bg-cream-100 text-charcoal-900 border-l-4 border-l-brand-500 font-bold pl-2 shadow-xs' 
+                      : 'text-charcoal-600 hover:text-charcoal-900 hover:bg-cream-50'
+                    }
+                  `}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-charcoal-500">{item.icon}</span>
+                    <span>{item.name}</span>
+                  </div>
+                  {item.badge && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                      item.badgeVariant === 'brand' 
+                        ? 'bg-brand-100 text-brand-700' 
+                        : 'bg-charcoal-100 text-charcoal-600'
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer Info */}
-      <div className="p-3 border-t border-charcoal-100 text-[11px] text-charcoal-400 bg-cream-50/50">
-        <div className="flex items-center justify-between">
-          <span>PharmaDesk v1.0</span>
-          <span className="font-mono text-[10px] text-charcoal-500">Asia/Kolkata</span>
+      <div className="p-3 border-t border-charcoal-200 text-[11px] text-charcoal-500 bg-cream-50/50 shrink-0">
+        <div className="flex items-center justify-between font-mono">
+          <span className="font-semibold text-charcoal-700">Bajrang Pharmacy</span>
+          <span className="text-[10px] bg-cream-200/60 px-1 rounded text-charcoal-600">UP 09</span>
         </div>
+        <p className="text-[10px] text-charcoal-400 mt-0.5 truncate">GSTIN: 09CMVPM3439A1ZS</p>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="sidebar hidden lg:flex flex-col w-[260px] bg-white border-r border-charcoal-200 select-none min-h-0 shadow-xs">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Drawer Sidebar */}
+      {isOpenMobile && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="fixed inset-0 bg-charcoal-950/50 backdrop-blur-xs transition-opacity"
+            onClick={onCloseMobile}
+          />
+          <div className="fixed inset-y-0 left-0 w-72 bg-white shadow-2xl z-50 flex flex-col">
+            <div className="h-16 border-b border-charcoal-200 px-4 flex items-center justify-between bg-cream-50/80">
+              <span className="font-bold text-charcoal-900 text-base">Navigation</span>
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                className="p-1.5 text-charcoal-500 hover:text-charcoal-900 rounded-md hover:bg-charcoal-100"
+                aria-label="Close sidebar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {sidebarContent}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

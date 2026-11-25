@@ -4,10 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { billingService, inventoryService, medicineService } from '@/services/api';
 import { Invoice, BranchInventory, Medicine } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Badge } from '@/components/common/Badge';
-import { EmptyState } from '@/components/common/EmptyState';
+import { Card, StatCard, Button, Badge, EmptyState, PageHeader, Skeleton } from '@/components/common';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { 
   TrendingUp, 
@@ -19,7 +16,9 @@ import {
   Pill, 
   ArrowUpRight,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  ShoppingBag,
+  Clock
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -181,136 +180,142 @@ export const Dashboard: React.FC = () => {
     { name: 'Card', value: metrics.cardSales, color: '#737373' },
   ].filter(d => d.value > 0);
 
+  // Dynamic growth percentage calculation (Requirement 7)
+  const todaySalesTrend = useMemo(() => {
+    const yesterday = metrics.yesterdaySales;
+    const today = metrics.todaySales;
+
+    if (yesterday === 0 && today === 0) {
+      return {
+        value: '0%',
+        isPositive: undefined, // neutral style, no arrow
+        label: 'vs yesterday',
+      };
+    }
+    if (yesterday === 0 && today > 0) {
+      return {
+        value: 'New',
+        isPositive: true,
+        label: 'vs yesterday',
+      };
+    }
+    const pct = Math.round(((today - yesterday) / yesterday) * 100);
+    return {
+      value: `${Math.abs(pct)}%`,
+      isPositive: today >= yesterday,
+      label: 'vs yesterday',
+    };
+  }, [metrics.todaySales, metrics.yesterdaySales]);
+
   // Stock health counts
   const lowStockCount = inventory.filter(i => i.stock_pieces > 0 && i.stock_pieces <= 20).length;
   const outOfStockCount = inventory.filter(i => i.stock_pieces === 0).length;
 
   return (
     <div className="space-y-6">
-      {/* Dashboard Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Executive Dashboard</h1>
-            <Badge variant="brand" className="text-[10px] uppercase font-bold">
+      {/* Top Header (Requirement 3: inside <main>, flex, space-between, gap 16px, flex-wrap, mb-6) */}
+      <div className="flex justify-between items-start gap-4 flex-wrap mb-6 pb-4 border-b border-charcoal-200">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-charcoal-900 tracking-tight font-sans">
+              Executive Dashboard
+            </h1>
+            <Badge variant="brand" size="sm" className="uppercase font-bold tracking-wider">
               {user?.role === 'master_admin' ? 'Master Admin' : 'Branch Portal'}
             </Badge>
           </div>
-          <p className="text-xs text-charcoal-500 mt-0.5">
+          <p className="text-xs text-charcoal-500 mt-1">
             Real-time business sales, branch metrics, and inventory overview.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-charcoal-600 bg-white border border-charcoal-200 px-3 py-1.5 rounded-md font-mono">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs text-charcoal-600 bg-white border border-charcoal-200 px-3 py-1.5 rounded-md font-mono h-10 shadow-xs">
             <Calendar className="w-3.5 h-3.5 text-brand-600" />
             <span>{new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'full' })}</span>
           </div>
 
-          <Button variant="primary" size="sm" onClick={() => navigate('/pos')}>
-            <Receipt className="w-3.5 h-3.5 mr-1" />
+          <Button variant="primary" size="md" onClick={() => navigate('/pos')} leftIcon={<Receipt className="w-4 h-4" />}>
             Open POS
           </Button>
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Sales */}
-        <Card className="p-4 bg-white border-l-4 border-l-charcoal-800">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">
-            Total Business Sales
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-charcoal-900 font-sans">
-              {formatCurrency(metrics.totalSales)}
-            </span>
-            <TrendingUp className="w-5 h-5 text-brand-500" />
-          </div>
-          <span className="text-[10px] text-charcoal-500 mt-1 block">
-            Taxable: {formatCurrency(metrics.totalTaxable)} | GST: {formatCurrency(metrics.totalGst)}
-          </span>
-        </Card>
+      {/* KPI Cards Grid (Requirement 5: 4 cols desktop, 2 tablet, 1 mobile, 20-24px gap) */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6">
+          <Skeleton height={116} className="rounded-lg" />
+          <Skeleton height={116} className="rounded-lg" />
+          <Skeleton height={116} className="rounded-lg" />
+          <Skeleton height={116} className="rounded-lg" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6">
+          <StatCard
+            label="Total Business Sales"
+            value={formatCurrency(metrics.totalSales)}
+            icon={<TrendingUp className="w-5 h-5 text-brand-600" />}
+            subtext={`Taxable: ${formatCurrency(metrics.totalTaxable)} | GST: ${formatCurrency(metrics.totalGst)}`}
+            variant="default"
+          />
 
-        {/* Today's Sales */}
-        <Card className="p-4 bg-white border-l-4 border-l-brand-400">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">
-            Today's Sales
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-charcoal-900 font-sans">
-              {formatCurrency(metrics.todaySales)}
-            </span>
-            <span className="text-xs font-semibold text-charcoal-600">Today</span>
-          </div>
-          <span className="text-[10px] text-charcoal-500 mt-1 block">
-            Yesterday: {formatCurrency(metrics.yesterdaySales)}
-          </span>
-        </Card>
+          <StatCard
+            label="Today's Sales"
+            value={formatCurrency(metrics.todaySales)}
+            icon={<ShoppingBag className="w-5 h-5 text-emerald-600" />}
+            subtext={`Yesterday: ${formatCurrency(metrics.yesterdaySales)}`}
+            trend={todaySalesTrend}
+            variant="success"
+          />
 
-        {/* Invoices Count */}
-        <Card className="p-4 bg-white border-l-4 border-l-charcoal-600">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">
-            Invoices Generated
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-charcoal-900 font-sans">
-              {metrics.totalInvoices}
-            </span>
-            <Receipt className="w-5 h-5 text-charcoal-400" />
-          </div>
-          <span className="text-[10px] text-charcoal-500 mt-1 block">
-            Avg Bill: {formatCurrency(metrics.avgBill)}
-          </span>
-        </Card>
+          <StatCard
+            label="Invoices Generated"
+            value={metrics.totalInvoices}
+            icon={<Receipt className="w-5 h-5 text-charcoal-500" />}
+            subtext={`Avg Bill: ${formatCurrency(metrics.avgBill)}`}
+            variant="brand"
+          />
 
-        {/* Inventory Status */}
-        <Card className="p-4 bg-white border-l-4 border-l-amber-500">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">
-            Stock Depletion Alerts
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-amber-800 font-sans">
-              {lowStockCount + outOfStockCount}
-            </span>
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-          </div>
-          <span className="text-[10px] text-charcoal-500 mt-1 block">
-            {lowStockCount} low stock | {outOfStockCount} out of stock
-          </span>
-        </Card>
-      </div>
+          <StatCard
+            label="Stock Depletion Alerts"
+            value={lowStockCount + outOfStockCount}
+            icon={<AlertTriangle className="w-5 h-5 text-amber-600" />}
+            subtext={`${lowStockCount} low stock • ${outOfStockCount} out of stock`}
+            variant={lowStockCount + outOfStockCount > 0 ? 'warning' : 'default'}
+          />
+        </div>
+      )}
 
-      {/* Branch Comparison Cards for Master Admin */}
+      {/* Branch Comparison Cards for Master Admin (Requirement 6: responsive, no overflow) */}
       {user?.role === 'master_admin' && (
-        <Card className="p-4 bg-white">
+        <Card className="bg-white overflow-hidden min-w-0">
           <div className="flex items-center justify-between mb-3 border-b border-charcoal-100 pb-2">
             <h3 className="text-xs font-bold text-charcoal-700 uppercase tracking-wider flex items-center gap-1.5">
               <Building2 className="w-4 h-4 text-brand-600" />
               Branch Performance Comparison
             </h3>
-            <span className="text-[11px] text-charcoal-500">2 Configured Active Branches</span>
+            <span className="text-[11px] text-charcoal-500">{branches.length} Configured Active Branches</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5 min-w-0">
             {metrics.branchComparison.map((item, idx) => (
-              <div key={item.branch.id} className="p-4 bg-cream-50 rounded-md border border-charcoal-200">
+              <div key={item.branch.id} className="p-4 bg-cream-50 rounded-lg border border-charcoal-200 min-w-0">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-bold text-charcoal-900 block">{item.branch.name}</span>
-                    <span className="text-[11px] text-charcoal-500">Code: {item.branch.branch_code} • {item.branch.city}</span>
+                  <div className="min-w-0 pr-2">
+                    <span className="text-sm font-bold text-charcoal-900 block truncate">{item.branch.name}</span>
+                    <span className="text-[11px] text-charcoal-500 font-mono truncate block">Code: {item.branch.branch_code} • {item.branch.city}, {item.branch.state}</span>
                   </div>
-                  <Badge variant="brand" className="text-[10px]">Branch {idx + 1}</Badge>
+                  <Badge variant="brand" size="sm" className="shrink-0">Branch {idx + 1}</Badge>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-charcoal-200/60">
                   <div>
                     <span className="text-[10px] font-bold text-charcoal-500 uppercase">Revenue</span>
-                    <p className="text-lg font-bold text-charcoal-900">{formatCurrency(item.revenue)}</p>
+                    <p className="text-lg font-bold text-charcoal-900 font-mono">{formatCurrency(item.revenue)}</p>
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-charcoal-500 uppercase">Total Invoices</span>
-                    <p className="text-lg font-bold text-charcoal-900">{item.invoicesCount}</p>
+                    <p className="text-lg font-bold text-charcoal-900 font-mono">{item.invoicesCount}</p>
                   </div>
                 </div>
               </div>
@@ -319,9 +324,9 @@ export const Dashboard: React.FC = () => {
         </Card>
       )}
 
-      {/* Charts Section: 7-Day Trend & Payment Method */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="p-4 bg-white lg:col-span-2" header={<span className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">7-Day Sales Trend</span>}>
+      {/* Charts Section: 7-Day Trend & Payment Method (Requirement 6: responsive, no overflow) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-0">
+        <Card className="bg-white lg:col-span-2 overflow-hidden min-w-0" header={<span className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">7-Day Sales Trend</span>}>
           {metrics.totalSales === 0 ? (
             <div className="h-60 flex items-center justify-center">
               <EmptyState
@@ -337,7 +342,7 @@ export const Dashboard: React.FC = () => {
                   <YAxis stroke="#737373" fontSize={11} tickLine={false} tickFormatter={(val) => `₹${val}`} />
                   <Tooltip 
                     formatter={(val: any) => [`₹${Number(val).toFixed(2)}`, 'Sales']}
-                    contentStyle={{ backgroundColor: '#292929', color: '#fff', borderRadius: '4px', fontSize: '11px' }}
+                    contentStyle={{ backgroundColor: '#292929', color: '#fff', borderRadius: '6px', fontSize: '11px' }}
                   />
                   <Bar dataKey="sales" fill="#E9A66B" radius={[4, 4, 0, 0]} />
                 </BarChart>
@@ -347,7 +352,7 @@ export const Dashboard: React.FC = () => {
         </Card>
 
         {/* Payment Breakdown */}
-        <Card className="p-4 bg-white" header={<span className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">Payment Method Share</span>}>
+        <Card className="bg-white" header={<span className="text-xs font-bold text-charcoal-700 uppercase tracking-wider">Payment Method Share</span>}>
           {paymentChartData.length === 0 ? (
             <div className="h-60 flex items-center justify-center">
               <EmptyState
@@ -374,7 +379,7 @@ export const Dashboard: React.FC = () => {
                   </Pie>
                   <Tooltip 
                     formatter={(val: any) => [`₹${Number(val).toFixed(2)}`, 'Amount']}
-                    contentStyle={{ backgroundColor: '#292929', color: '#fff', borderRadius: '4px', fontSize: '11px' }}
+                    contentStyle={{ backgroundColor: '#292929', color: '#fff', borderRadius: '6px', fontSize: '11px' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -405,7 +410,7 @@ export const Dashboard: React.FC = () => {
           ) : (
             <div className="divide-y divide-charcoal-100">
               {metrics.topMedicines.map((med, idx) => (
-                <div key={idx} className="p-3.5 flex items-center justify-between text-xs hover:bg-cream-50">
+                <div key={idx} className="p-3.5 flex items-center justify-between text-xs hover:bg-cream-50 transition-colors">
                   <div className="flex items-center gap-2.5">
                     <span className="w-5 h-5 rounded-full bg-cream-100 text-charcoal-800 font-bold flex items-center justify-center text-[10px]">
                       {idx + 1}
@@ -413,7 +418,7 @@ export const Dashboard: React.FC = () => {
                     <span className="font-bold text-charcoal-900">{med.name}</span>
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-charcoal-900 block">{formatCurrency(med.revenue)}</span>
+                    <span className="font-bold text-charcoal-900 font-mono block">{formatCurrency(med.revenue)}</span>
                     <span className="text-[10px] text-charcoal-500">{med.quantity} units sold</span>
                   </div>
                 </div>
@@ -448,14 +453,14 @@ export const Dashboard: React.FC = () => {
           ) : (
             <div className="divide-y divide-charcoal-100">
               {invoices.slice(0, 5).map((inv) => (
-                <div key={inv.id} className="p-3.5 flex items-center justify-between text-xs hover:bg-cream-50">
+                <div key={inv.id} className="p-3.5 flex items-center justify-between text-xs hover:bg-cream-50 transition-colors">
                   <div>
                     <span className="font-bold font-mono text-charcoal-900 block">{inv.invoice_number}</span>
                     <span className="text-[11px] text-charcoal-500">{inv.customer_name} • {inv.customer_phone}</span>
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-charcoal-900 block text-sm">{formatCurrency(inv.total_amount)}</span>
-                    <Badge variant="brand" className="text-[9px] uppercase font-bold py-0">{inv.payment_method}</Badge>
+                    <span className="font-bold text-charcoal-900 font-mono block text-sm">{formatCurrency(inv.total_amount)}</span>
+                    <Badge variant="brand" size="sm" className="uppercase font-bold">{inv.payment_method}</Badge>
                   </div>
                 </div>
               ))}

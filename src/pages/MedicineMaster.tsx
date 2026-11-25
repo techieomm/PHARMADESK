@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { medicineService } from '@/services/api';
-import { Medicine } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { Modal } from '@/components/common/Modal';
-import { EmptyState } from '@/components/common/EmptyState';
+import { Medicine, DrugSchedule } from '@/types';
+import { 
+  Card, 
+  Button, 
+  Input, 
+  Select, 
+  Badge, 
+  Modal, 
+  EmptyState, 
+  PageHeader, 
+  Toolbar, 
+  Skeleton,
+  BarcodeLabelPrinter
+} from '@/components/common';
 import { formatCurrency } from '@/utils/formatters';
 import { exportToExcel } from '@/utils/exporter';
 import { 
@@ -19,7 +26,8 @@ import {
   Check, 
   X, 
   Barcode, 
-  Upload
+  Upload,
+  Printer
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -29,12 +37,16 @@ export const MedicineMaster: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDosage, setSelectedDosage] = useState<string>('all');
+  const [selectedSchedule, setSelectedSchedule] = useState<string>('all');
 
   // Add / Edit Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Barcode Label Print Modal
+  const [printingMedicine, setPrintingMedicine] = useState<Medicine | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -55,6 +67,7 @@ export const MedicineMaster: React.FC = () => {
     hsn_code: '3004',
     min_stock_alert: 20,
     is_active: true,
+    drug_schedule: 'otc' as DrugSchedule,
   });
 
   const loadMedicines = async () => {
@@ -93,6 +106,7 @@ export const MedicineMaster: React.FC = () => {
       hsn_code: '3004',
       min_stock_alert: 20,
       is_active: true,
+      drug_schedule: 'otc' as DrugSchedule,
     });
     setFormError(null);
     setIsModalOpen(true);
@@ -118,6 +132,7 @@ export const MedicineMaster: React.FC = () => {
       hsn_code: med.hsn_code || '3004',
       min_stock_alert: med.min_stock_alert,
       is_active: med.is_active,
+      drug_schedule: (med.drug_schedule || 'otc') as DrugSchedule,
     });
     setFormError(null);
     setIsModalOpen(true);
@@ -203,6 +218,7 @@ export const MedicineMaster: React.FC = () => {
                 gst_rate: Number(row['GST Rate']) || 12,
                 min_stock_alert: 20,
                 is_active: true,
+                drug_schedule: 'otc' as DrugSchedule,
               });
               importedCount++;
             }
@@ -233,12 +249,16 @@ export const MedicineMaster: React.FC = () => {
       'GST Rate (%)': m.gst_rate,
       'Active': m.is_active ? 'Yes' : 'No',
     }));
-    exportToExcel(exportData, 'PharmaDesk_Medicine_Catalog', 'Medicines');
+    exportToExcel(exportData, 'BajrangPharmacy_Medicine_Catalog', 'Medicines');
   };
 
   // Filter medicines
   const filteredMedicines = medicines.filter(m => {
     if (selectedDosage !== 'all' && m.dosage_form.toLowerCase() !== selectedDosage.toLowerCase()) {
+      return false;
+    }
+    const sched = m.drug_schedule || 'otc';
+    if (selectedSchedule !== 'all' && sched !== selectedSchedule) {
       return false;
     }
     if (searchQuery.trim()) {
@@ -257,73 +277,91 @@ export const MedicineMaster: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Medicine Master Catalog</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Centralized pharmaceutical master with dual-unit prices, barcode mapping & GST tax rates.
-          </p>
-        </div>
+      <PageHeader
+        title="Medicine Master Catalog"
+        subtitle="Centralized pharmaceutical master with dual-unit prices, barcode mapping, drug schedules & GST rates."
+        actions={
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer">
+              <span className="inline-flex items-center justify-center font-medium transition-colors bg-white text-charcoal-800 border border-charcoal-200 hover:bg-cream-50 rounded-md text-xs px-3 h-10 gap-1.5 shadow-xs">
+                <Upload className="w-4 h-4 text-charcoal-500" />
+                Import CSV
+              </span>
+              <input type="file" accept=".csv, .xlsx, .xls" onChange={handleImportFile} className="hidden" />
+            </label>
 
-        <div className="flex items-center gap-2">
-          <label className="cursor-pointer">
-            <span className="inline-flex items-center justify-center font-medium transition-colors bg-white text-charcoal-800 border border-charcoal-200 hover:bg-cream-50 rounded-md text-xs px-2.5 py-1.5 gap-1.5 shadow-xs">
-              <Upload className="w-3.5 h-3.5 text-charcoal-500" />
-              Import CSV
-            </span>
-            <input type="file" accept=".csv, .xlsx, .xls" onChange={handleImportFile} className="hidden" />
-          </label>
+            <Button variant="outline" size="md" onClick={handleExport} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
+              Export
+            </Button>
 
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-            Export
-          </Button>
-
-          <Button variant="primary" size="sm" onClick={openCreateModal}>
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Add Medicine
-          </Button>
-        </div>
-      </div>
+            <Button variant="primary" size="md" onClick={openCreateModal} leftIcon={<Plus className="w-4 h-4" />}>
+              Add Medicine
+            </Button>
+          </div>
+        }
+      />
 
       {/* Filter & Search Bar */}
-      <Card className="p-4 bg-white">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="sm:col-span-2">
-            <Input
-              placeholder="Search by Brand Name, Generic Composition, Barcode, Manufacturer..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              leftIcon={<Search className="w-4 h-4" />}
+      <Toolbar>
+        <div className="flex-1 min-w-[240px]">
+          <Input
+            placeholder="Search by Brand Name, Composition, Barcode, Manufacturer..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<Search className="w-4 h-4" />}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-44">
+            <Select
+              size="md"
+              value={selectedDosage}
+              onChange={(e) => setSelectedDosage(e.target.value)}
+              options={[
+                { value: 'all', label: 'All Dosage Forms' },
+                { value: 'Tablet', label: 'Tablet' },
+                { value: 'Capsule', label: 'Capsule' },
+                { value: 'Syrup', label: 'Syrup' },
+                { value: 'Injection', label: 'Injection' },
+                { value: 'Ointment', label: 'Ointment / Cream' },
+                { value: 'Drops', label: 'Drops' },
+                { value: 'Inhaler', label: 'Inhaler' }
+              ]}
             />
           </div>
 
-          <div>
-            <select
-              value={selectedDosage}
-              onChange={(e) => setSelectedDosage(e.target.value)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="all">All Dosage Forms</option>
-              <option value="Tablet">Tablet</option>
-              <option value="Capsule">Capsule</option>
-              <option value="Syrup">Syrup</option>
-              <option value="Injection">Injection</option>
-              <option value="Ointment">Ointment / Cream</option>
-              <option value="Drops">Drops</option>
-            </select>
+          <div className="w-44">
+            <Select
+              size="md"
+              value={selectedSchedule}
+              onChange={(e) => setSelectedSchedule(e.target.value)}
+              options={[
+                { value: 'all', label: 'All Schedules' },
+                { value: 'otc', label: 'OTC / General' },
+                { value: 'schedule_h', label: 'Schedule H' },
+                { value: 'schedule_h1', label: 'Schedule H1 (Reg.)' },
+                { value: 'schedule_x', label: 'Schedule X' },
+                { value: 'narcotic', label: 'Narcotic / NDPS' }
+              ]}
+            />
           </div>
         </div>
-      </Card>
+      </Toolbar>
 
       {/* Table */}
       <Card className="bg-white overflow-hidden" noPadding>
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-charcoal-500">Loading catalog...</div>
+          <div className="p-6 space-y-3">
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+          </div>
         ) : filteredMedicines.length === 0 ? (
           <div className="p-8">
             <EmptyState
-              icon={<Pill className="w-6 h-6" />}
+              icon={<Pill className="w-8 h-8 text-charcoal-400" />}
               title="No medicines found in catalog"
               description="The centralized medicine master is empty or no items match your search. Add medicines or import a CSV catalog."
               actionLabel="Add First Medicine"
@@ -335,84 +373,120 @@ export const MedicineMaster: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                  <th className="py-2.5 px-4">Brand / Generic</th>
-                  <th className="py-2.5 px-3">Form & Strength</th>
-                  <th className="py-2.5 px-3">Manufacturer</th>
-                  <th className="py-2.5 px-3 font-mono">Barcode</th>
-                  <th className="py-2.5 px-3">Strip Pack</th>
-                  <th className="py-2.5 px-3 text-right">MRP</th>
-                  <th className="py-2.5 px-3 text-right">Strip Price</th>
-                  <th className="py-2.5 px-3 text-right">Piece Price</th>
-                  <th className="py-2.5 px-3 text-center">GST</th>
-                  <th className="py-2.5 px-3 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-center">Action</th>
+                  <th className="py-3 px-4">Brand / Generic</th>
+                  <th className="py-3 px-3">Form & Strength</th>
+                  <th className="py-3 px-3">Schedule</th>
+                  <th className="py-3 px-3">Manufacturer</th>
+                  <th className="py-3 px-3 font-mono">Barcode</th>
+                  <th className="py-3 px-3">Strip Pack</th>
+                  <th className="py-3 px-3 text-right">MRP</th>
+                  <th className="py-3 px-3 text-right">Strip Price</th>
+                  <th className="py-3 px-3 text-right">Piece Price</th>
+                  <th className="py-3 px-3 text-center">GST</th>
+                  <th className="py-3 px-3 text-center">Status</th>
+                  <th className="py-3 px-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-charcoal-100">
-                {filteredMedicines.map((med) => (
-                  <tr key={med.id} className="hover:bg-cream-50/50 transition-colors">
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-charcoal-900 block text-sm">{med.brand_name}</span>
-                      <span className="text-[11px] text-charcoal-500">{med.generic_name}</span>
-                    </td>
+                {filteredMedicines.map((med) => {
+                  const schedule = med.drug_schedule || 'otc';
+                  const badgeVariant = 
+                    schedule === 'schedule_h1' ? 'schedule_h1' :
+                    schedule === 'schedule_h' ? 'schedule_h' :
+                    schedule === 'schedule_x' ? 'schedule_x' :
+                    schedule === 'narcotic' ? 'schedule_narcotic' : 'schedule_otc';
 
-                    <td className="py-3 px-3">
-                      <Badge variant="neutral" className="text-[10px] py-0 mr-1.5 font-medium">
-                        {med.dosage_form}
-                      </Badge>
-                      <span className="text-charcoal-700">{med.strength || '-'}</span>
-                    </td>
+                  return (
+                    <tr key={med.id} className="hover:bg-cream-50/60 transition-colors">
+                      <td className="py-3 px-4">
+                        <span className="font-bold text-charcoal-900 block text-sm">{med.brand_name}</span>
+                        <span className="text-[11px] text-charcoal-500">{med.generic_name}</span>
+                      </td>
 
-                    <td className="py-3 px-3 text-charcoal-700">
-                      {med.manufacturer}
-                    </td>
+                      <td className="py-3 px-3">
+                        <Badge variant="neutral" size="sm" className="mr-1.5 font-medium">
+                          {med.dosage_form}
+                        </Badge>
+                        <span className="text-charcoal-700">{med.strength || '-'}</span>
+                      </td>
 
-                    <td className="py-3 px-3 font-mono text-[11px] text-charcoal-600">
-                      {med.barcode || <span className="text-gray-300">-</span>}
-                    </td>
+                      <td className="py-3 px-3">
+                        <Badge variant={badgeVariant as any} size="sm">
+                          {schedule.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      </td>
 
-                    <td className="py-3 px-3 text-charcoal-700">
-                      {med.pieces_per_strip} pcs/strip
-                    </td>
+                      <td className="py-3 px-3 text-charcoal-700">
+                        {med.manufacturer}
+                      </td>
 
-                    <td className="py-3 px-3 text-right font-medium text-charcoal-700">
-                      {formatCurrency(med.mrp)}
-                    </td>
+                      <td className="py-3 px-3 font-mono text-[11px] text-charcoal-600">
+                        {med.barcode || <span className="text-gray-300">-</span>}
+                      </td>
 
-                    <td className="py-3 px-3 text-right font-bold text-charcoal-900">
-                      {formatCurrency(med.strip_selling_price)}
-                    </td>
+                      <td className="py-3 px-3 text-charcoal-700">
+                        {med.pieces_per_strip} pcs/strip
+                      </td>
 
-                    <td className="py-3 px-3 text-right font-bold text-brand-600">
-                      {formatCurrency(med.piece_selling_price)}
-                    </td>
+                      <td className="py-3 px-3 text-right font-medium text-charcoal-700 font-mono">
+                        {formatCurrency(med.mrp)}
+                      </td>
 
-                    <td className="py-3 px-3 text-center font-semibold text-charcoal-700">
-                      {med.gst_rate}%
-                    </td>
+                      <td className="py-3 px-3 text-right font-bold text-charcoal-900 font-mono">
+                        {formatCurrency(med.strip_selling_price)}
+                      </td>
 
-                    <td className="py-3 px-3 text-center">
-                      <Badge variant={med.is_active ? 'success' : 'neutral'} className="text-[10px]">
-                        {med.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </td>
+                      <td className="py-3 px-3 text-right font-bold text-brand-600 font-mono">
+                        {formatCurrency(med.piece_selling_price)}
+                      </td>
 
-                    <td className="py-3 px-3 text-center">
-                      <button
-                        onClick={() => openEditModal(med)}
-                        className="p-1.5 text-charcoal-600 hover:text-brand-600 hover:bg-cream-100 rounded"
-                        title="Edit medicine details"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="py-3 px-3 text-center font-semibold text-charcoal-700">
+                        {med.gst_rate}%
+                      </td>
+
+                      <td className="py-3 px-3 text-center">
+                        <Badge variant={med.is_active ? 'success' : 'neutral'} size="sm">
+                          {med.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </td>
+
+                      <td className="py-3 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => setPrintingMedicine(med)}
+                            className="p-1.5 text-charcoal-600 hover:text-brand-600 hover:bg-cream-100 rounded transition-colors"
+                            title="Print Barcode Labels"
+                          >
+                            <Barcode className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => openEditModal(med)}
+                            className="p-1.5 text-charcoal-600 hover:text-brand-600 hover:bg-cream-100 rounded transition-colors"
+                            title="Edit medicine details"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
+
+      {/* Barcode Label Print Modal */}
+      {printingMedicine && (
+        <BarcodeLabelPrinter
+          isOpen={true}
+          onClose={() => setPrintingMedicine(null)}
+          brandName={printingMedicine.brand_name}
+          mrp={printingMedicine.mrp}
+          barcode={printingMedicine.barcode || printingMedicine.id.substring(0, 12).toUpperCase()}
+        />
+      )}
 
       {/* Add / Edit Medicine Modal */}
       <Modal
@@ -446,32 +520,43 @@ export const MedicineMaster: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                Dosage Form *
-              </label>
-              <select
-                value={formData.dosage_form}
-                onChange={(e) => setFormData({ ...formData, dosage_form: e.target.value })}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                <option value="Tablet">Tablet</option>
-                <option value="Capsule">Capsule</option>
-                <option value="Syrup">Syrup</option>
-                <option value="Injection">Injection</option>
-                <option value="Ointment">Ointment / Cream</option>
-                <option value="Drops">Drops</option>
-                <option value="Inhaler">Inhaler</option>
-              </select>
-            </div>
+            <Select
+              label="Dosage Form *"
+              value={formData.dosage_form}
+              onChange={(e) => setFormData({ ...formData, dosage_form: e.target.value })}
+              options={[
+                { value: 'Tablet', label: 'Tablet' },
+                { value: 'Capsule', label: 'Capsule' },
+                { value: 'Syrup', label: 'Syrup' },
+                { value: 'Injection', label: 'Injection' },
+                { value: 'Ointment', label: 'Ointment / Cream' },
+                { value: 'Drops', label: 'Drops' },
+                { value: 'Inhaler', label: 'Inhaler' },
+              ]}
+            />
+
+            <Select
+              label="Drug Schedule *"
+              value={formData.drug_schedule}
+              onChange={(e) => setFormData({ ...formData, drug_schedule: e.target.value as DrugSchedule })}
+              options={[
+                { value: 'otc', label: 'OTC / General Sale' },
+                { value: 'schedule_h', label: 'Schedule H (Rx Req.)' },
+                { value: 'schedule_h1', label: 'Schedule H1 (Register)' },
+                { value: 'schedule_x', label: 'Schedule X (Special Rx)' },
+                { value: 'narcotic', label: 'Narcotic / NDPS' },
+              ]}
+            />
 
             <Input
               label="Strength"
-              placeholder="e.g. 650 mg / 500 mg"
+              placeholder="e.g. 650 mg"
               value={formData.strength}
               onChange={(e) => setFormData({ ...formData, strength: e.target.value })}
             />
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Manufacturer *"
               placeholder="e.g. Micro Labs Ltd."
@@ -479,26 +564,17 @@ export const MedicineMaster: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
               required
             />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Barcode / GTIN / EAN-13"
-              placeholder="Scan or enter 1D/2D barcode"
+              placeholder="Scan or enter barcode"
               value={formData.barcode}
               onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
               leftIcon={<Barcode className="w-4 h-4" />}
             />
-            <Input
-              label="Packaging Label"
-              placeholder="e.g. 15 tablets per strip"
-              value={formData.packaging_label}
-              onChange={(e) => setFormData({ ...formData, packaging_label: e.target.value })}
-            />
           </div>
 
           {/* DUAL UNIT & PRICING SECTION */}
-          <div className="p-3.5 bg-cream-50 rounded-md border border-charcoal-200 space-y-3">
+          <div className="p-4 bg-cream-50 rounded-lg border border-charcoal-200 space-y-3">
             <span className="text-xs font-bold text-charcoal-800 uppercase tracking-wider block">
               Dual-Unit Configuration & Selling Prices
             </span>
@@ -513,7 +589,7 @@ export const MedicineMaster: React.FC = () => {
               />
 
               <Input
-                label="Maximum Retail Price (₹) *"
+                label="MRP (₹) *"
                 type="number"
                 step="0.01"
                 min="0"
@@ -544,22 +620,18 @@ export const MedicineMaster: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-              <div>
-                <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                  GST Rate (%) *
-                </label>
-                <select
-                  value={formData.gst_rate}
-                  onChange={(e) => setFormData({ ...formData, gst_rate: parseFloat(e.target.value) })}
-                  className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-                >
-                  <option value={0}>0% (Exempt)</option>
-                  <option value={5}>5%</option>
-                  <option value={12}>12% (Standard Medicines)</option>
-                  <option value={18}>18%</option>
-                  <option value={28}>28%</option>
-                </select>
-              </div>
+              <Select
+                label="GST Rate (%) *"
+                value={formData.gst_rate.toString()}
+                onChange={(e) => setFormData({ ...formData, gst_rate: parseFloat(e.target.value) })}
+                options={[
+                  { value: '0', label: '0% (Exempt)' },
+                  { value: '5', label: '5%' },
+                  { value: '12', label: '12% (Standard Medicines)' },
+                  { value: '18', label: '18%' },
+                  { value: '28', label: '28%' }
+                ]}
+              />
 
               <Input
                 label="HSN Code"
@@ -568,7 +640,7 @@ export const MedicineMaster: React.FC = () => {
               />
 
               <Input
-                label="Low Stock Alert (in pieces)"
+                label="Low Stock Alert (pieces)"
                 type="number"
                 min="0"
                 value={formData.min_stock_alert}

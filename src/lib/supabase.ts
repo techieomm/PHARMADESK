@@ -13,6 +13,17 @@ export const isSupabaseConfigured = (): boolean => {
   );
 };
 
+export const getSupabaseProjectRef = (): string => {
+  try {
+    if (!supabaseUrl) return 'Not Configured';
+    const parsed = new URL(supabaseUrl);
+    const host = parsed.hostname;
+    return host.split('.')[0] || host;
+  } catch {
+    return 'Invalid URL';
+  }
+};
+
 export const supabase = isSupabaseConfigured()
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {

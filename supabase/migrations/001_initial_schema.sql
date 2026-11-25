@@ -304,15 +304,22 @@ RETURNS UUID AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 -- Function: Lookup Employee Email by Employee ID (Used for Employee ID login)
+DROP FUNCTION IF EXISTS public.lookup_employee_email(VARCHAR);
+DROP FUNCTION IF EXISTS public.lookup_employee_email(TEXT);
+
 CREATE OR REPLACE FUNCTION public.lookup_employee_email(p_employee_id VARCHAR)
-RETURNS TABLE (email VARCHAR, is_active BOOLEAN) AS $$
+RETURNS TABLE (email VARCHAR, is_active BOOLEAN)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     RETURN QUERY
     SELECT p.email, p.is_active
     FROM public.profiles p
-    WHERE UPPER(p.employee_id) = UPPER(p_employee_id);
+    WHERE UPPER(p.employee_id) = UPPER(TRIM(p_employee_id));
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- ====================================================================
 -- ATOMIC BILLING & INVENTORY TRANSACTION PROCEDURE

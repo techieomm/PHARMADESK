@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/common/Button';
 import { Badge } from '@/components/common/Badge';
-import { isSupabaseConfigured } from '@/lib/supabase';
-import { Check, Copy, Database, ShieldAlert, ExternalLink } from 'lucide-react';
+import { isSupabaseConfigured, getSupabaseProjectRef } from '@/lib/supabase';
+import { runHealthCheck, HealthCheckResult } from '@/lib/healthCheck';
+import { Check, Copy, Database, ShieldAlert, ExternalLink, Terminal, Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface SupabaseSetupModalProps {
   isOpen: boolean;
@@ -12,19 +13,47 @@ interface SupabaseSetupModalProps {
 
 export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({ isOpen, onClose }) => {
   const isConnected = isSupabaseConfigured();
-  const [copied, setCopied] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [healthStatus, setHealthStatus] = useState<HealthCheckResult | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
 
-  const copyMigrationSql = async () => {
+  const migrations = [
+    { num: 'ALL', file: 'supabase/all_migrations.sql', desc: 'Single Consolidated File (001-009 in order for 1-click execution)' },
+    { num: '001', file: 'supabase/migrations/001_initial_schema.sql', desc: 'Core schema, businesses, branches, catalog, and base RLS' },
+    { num: '002', file: 'supabase/migrations/002_domain_schema.sql', desc: 'Batches, FEFO, drug schedules, H1 register, and ledgers' },
+    { num: '003', file: 'supabase/migrations/003_rpcs.sql', desc: 'Atomic billing RPC, day close, returns, purchases, and GSTR-1' },
+    { num: '004', file: 'supabase/migrations/004_seed_bajrang_pharmacy.sql', desc: 'Bajrang Pharmacy Lucknow branches, counters, and seed stock' },
+    { num: '005', file: 'supabase/migrations/005_auth_lookup_and_bootstrap.sql', desc: 'lookup_employee_email RPC + Master Admin bootstrap template' },
+    { num: '006', file: 'supabase/migrations/006_fix_login_profiles_rls.sql', desc: 'Fix RLS infinite recursion + guard trigger for profiles' },
+    { num: '008', file: 'supabase/migrations/008_employee_id_case_insensitive.sql', desc: 'Case-insensitive employee ID + lower() unique index & lookup' },
+    { num: '009', file: 'supabase/migrations/009_complete_password_change.sql', desc: 'complete_password_change RPC for first login setup' },
+  ];
+
+  const handleHealthCheck = async () => {
+    setIsChecking(true);
     try {
-      // In production/dev this can read from migration file or embed the SQL
-      const sqlText = `-- PHARMADESK COMPLETE DATABASE MIGRATION SCRIPT
--- Open your Supabase Dashboard -> SQL Editor, paste this script, and click Run.
--- Refer to supabase/migrations/001_initial_schema.sql in project root.`;
-      await navigator.clipboard.writeText(sqlText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      const res = await runHealthCheck();
+      setHealthStatus(res);
     } catch {
-      // fallback
+      // ignore
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && isConnected) {
+      handleHealthCheck();
+    }
+  }, [isOpen, isConnected]);
+
+  const copyPath = async (text: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch {
+      // ignore
     }
   };
 
@@ -32,83 +61,152 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({ isOpen, 
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Supabase Database Connection & Architecture"
+      title="Supabase Database Configuration & Migration Guide"
       maxWidth="lg"
       footer={
-        <Button variant="outline" size="sm" onClick={onClose}>
-          Close
-        </Button>
+        <div className="flex items-center justify-between w-full">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleHealthCheck}
+            isLoading={isChecking}
+            leftIcon={<Activity className="w-4 h-4 text-brand-600" />}
+          >
+            Run Schema Diagnostic Check
+          </Button>
+          <Button variant="primary" size="sm" onClick={onClose}>
+            Done
+          </Button>
+        </div>
       }
     >
       <div className="space-y-5 text-sm text-charcoal-700">
-        <div className="flex items-center justify-between p-3.5 bg-cream-50 rounded border border-charcoal-200">
+        {/* Connection Status Card */}
+        <div className="flex items-center justify-between p-3.5 bg-cream-50 rounded-lg border border-charcoal-200">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded ${isConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+            <div className={`p-2 rounded-md ${isConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
               <Database className="w-5 h-5" />
             </div>
             <div>
               <p className="font-semibold text-charcoal-900">
-                Connection Status: {isConnected ? 'Live Supabase Connected' : 'Local Architecture Mode'}
+                Connection Status: {isConnected ? `Live Supabase Connected (${getSupabaseProjectRef()})` : 'Configuration Missing'}
               </p>
               <p className="text-xs text-charcoal-500">
                 {isConnected 
-                  ? 'All operations, Auth & RLS are connecting directly to your Supabase PostgreSQL database.'
-                  : 'Operating with complete PostgreSQL-modeled local storage & atomic procedures until credentials are provided.'}
+                  ? 'Production mode active: all operations, transactions & RLS execute directly on live Postgres.'
+                  : 'Live Supabase credentials are required. Local storage fallback is disabled in production mode.'}
               </p>
             </div>
           </div>
           <Badge variant={isConnected ? 'success' : 'warning'}>
-            {isConnected ? 'ONLINE' : 'SETUP MODE'}
+            {isConnected ? 'ONLINE' : 'SETUP REQUIRED'}
           </Badge>
         </div>
 
-        {!isConnected && (
-          <div className="p-4 bg-amber-50/70 border border-amber-200 rounded text-xs text-amber-900 space-y-2">
-            <div className="flex items-center gap-1.5 font-semibold text-amber-950">
-              <ShieldAlert className="w-4 h-4 text-amber-700" />
-              <span>To connect your live Supabase cloud project:</span>
+        {/* Live Diagnostics Card */}
+        {healthStatus && (
+          <div className={`p-3.5 rounded-lg border text-xs space-y-2 ${
+            healthStatus.ok ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' : 'bg-red-50/80 border-red-200 text-red-900'
+          }`}>
+            <div className="flex items-center justify-between font-bold">
+              <span className="flex items-center gap-1.5">
+                {healthStatus.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                Live Schema Diagnostics ({healthStatus.ok ? 'All Core Components Active' : 'Missing Schema / Migration Detected'})
+              </span>
+              <span className="text-[10px] font-mono text-charcoal-500 font-normal">
+                {new Date(healthStatus.timestamp).toLocaleTimeString()}
+              </span>
             </div>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>Log into your Supabase Dashboard at <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="underline font-semibold text-amber-950 inline-flex items-center gap-0.5">supabase.com <ExternalLink className="w-3 h-3" /></a></li>
-              <li>Go to <b>Project Settings → API</b> and copy your <b>Project URL</b> and <b>anon/public key</b>.</li>
-              <li>Add them to your <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">.env</code> file:
-                <pre className="bg-charcoal-900 text-amber-100 p-2.5 rounded mt-1.5 font-mono text-[11px] select-all overflow-x-auto">
-{`VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`}
-                </pre>
-              </li>
-              <li>Go to <b>SQL Editor</b> in your Supabase Dashboard and run the SQL migration located at:
-                <div className="mt-1 font-mono font-medium text-charcoal-800">
-                  supabase/migrations/001_initial_schema.sql
-                </div>
-              </li>
-            </ol>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+              <div className={`p-2 rounded border flex items-center justify-between ${
+                healthStatus.checks.profilesTable.status === 'pass' ? 'bg-emerald-100/50 border-emerald-200' : 'bg-red-100/50 border-red-200'
+              }`}>
+                <span>public.profiles</span>
+                <span className="font-bold">{healthStatus.checks.profilesTable.status === 'pass' ? 'OK' : 'MISSING'}</span>
+              </div>
+              <div className={`p-2 rounded border flex items-center justify-between ${
+                healthStatus.checks.lookupEmailRpc.status === 'pass' ? 'bg-emerald-100/50 border-emerald-200' : 'bg-red-100/50 border-red-200'
+              }`}>
+                <span>lookup_employee</span>
+                <span className="font-bold">{healthStatus.checks.lookupEmailRpc.status === 'pass' ? 'OK' : 'MISSING'}</span>
+              </div>
+              <div className={`p-2 rounded border flex items-center justify-between ${
+                healthStatus.checks.createInvoiceRpc.status === 'pass' ? 'bg-emerald-100/50 border-emerald-200' : 'bg-red-100/50 border-red-200'
+              }`}>
+                <span>create_invoice_rpc</span>
+                <span className="font-bold">{healthStatus.checks.createInvoiceRpc.status === 'pass' ? 'OK' : 'MISSING'}</span>
+              </div>
+            </div>
+
+            {healthStatus.missingMigrations.length > 0 && (
+              <div className="mt-2 p-2 bg-white rounded border border-red-200 text-[11px] text-red-800 space-y-1">
+                <p className="font-bold">Action Required: Apply the following migration(s) in Supabase SQL Editor:</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {healthStatus.missingMigrations.map((m, idx) => (
+                    <li key={idx} className="font-mono">{m}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Migration Scripts Checklist */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-charcoal-800">Schema File Reference</span>
-            <Button variant="outline" size="sm" onClick={copyMigrationSql} className="text-xs h-7">
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-              {copied ? 'Copied Reference' : 'Copy File Path'}
-            </Button>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-charcoal-700 flex items-center gap-1.5">
+              <Terminal className="w-3.5 h-3.5 text-brand-600" />
+              <span>SQL Migrations (Run in Supabase SQL Editor):</span>
+            </h4>
+            <span className="text-[11px] text-charcoal-400">Run all_migrations.sql for 1-click setup</span>
           </div>
-          <div className="p-2.5 bg-charcoal-900 text-charcoal-200 rounded text-xs font-mono">
-            supabase/migrations/001_initial_schema.sql
+
+          <div className="border border-charcoal-200 rounded-lg overflow-hidden divide-y divide-charcoal-200">
+            {migrations.map((m, idx) => (
+              <div key={m.num} className={`p-3 flex items-center justify-between gap-3 text-xs ${m.num === 'ALL' ? 'bg-brand-50/50' : 'hover:bg-cream-50'}`}>
+                <div className="flex items-center gap-2.5">
+                  <span className={`w-10 text-center py-0.5 rounded font-mono font-bold text-[11px] ${
+                    m.num === 'ALL' ? 'bg-brand-600 text-white' : 'bg-charcoal-200 text-charcoal-800'
+                  }`}>
+                    {m.num}
+                  </span>
+                  <div>
+                    <p className="font-semibold text-charcoal-900 font-mono text-[11px]">{m.file}</p>
+                    <p className="text-[11px] text-charcoal-500">{m.desc}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyPath(m.file, idx)}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-600 hover:text-brand-700 bg-white border border-charcoal-200 hover:border-brand-300 px-2.5 py-1 rounded transition-colors shadow-2xs"
+                >
+                  {copiedIndex === idx ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Path</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="border-t border-charcoal-200 pt-3">
-          <h4 className="font-semibold text-charcoal-900 mb-1">Architecture Summary</h4>
-          <ul className="grid grid-cols-2 gap-2 text-xs text-charcoal-600">
-            <li className="flex items-center gap-1.5">✓ 2 Preconfigured Branches</li>
-            <li className="flex items-center gap-1.5">✓ Centralized Medicine Master</li>
-            <li className="flex items-center gap-1.5">✓ Dual-Unit Inventory (Strips & Pieces)</li>
-            <li className="flex items-center gap-1.5">✓ Atomic Procedure for Billing</li>
-            <li className="flex items-center gap-1.5">✓ Hardware Barcode Scanner Listener</li>
-            <li className="flex items-center gap-1.5">✓ Row Level Security (RLS) Rules</li>
-          </ul>
+        {/* Initial Master Admin Setup Instructions */}
+        <div className="p-3.5 bg-cream-100/70 border border-charcoal-200 rounded-lg text-xs space-y-2">
+          <p className="font-bold text-charcoal-900">How to create the first Master Admin user:</p>
+          <ol className="list-decimal pl-4 space-y-1 text-charcoal-600 text-[11px]">
+            <li>In Supabase Dashboard &rarr; <b>Authentication</b> &rarr; <b>Users</b> &rarr; Click <b>Add User</b>.</li>
+            <li>Email: <code className="font-mono font-bold bg-white px-1 border rounded">admin@bajrangpharmacy.in</code> | Password: <code className="font-mono font-bold bg-white px-1 border rounded">admin123</code> (Auto confirm: Yes).</li>
+            <li>Run migration <code className="font-mono bg-white px-1 border rounded">005_auth_lookup_and_bootstrap.sql</code> to link it into <code className="font-mono">public.profiles</code> as <code className="font-mono font-bold">EMP001</code>.</li>
+            <li>Log in using Employee ID <b>EMP001</b>.</li>
+          </ol>
         </div>
       </div>
     </Modal>

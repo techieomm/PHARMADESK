@@ -3,24 +3,30 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { inventoryService, medicineService } from '@/services/api';
 import { BranchInventory as InventoryType, Medicine } from '@/types';
-import { Card } from '@/components/common/Card';
-import { Button } from '@/components/common/Button';
-import { Input } from '@/components/common/Input';
-import { Badge } from '@/components/common/Badge';
-import { Modal } from '@/components/common/Modal';
-import { EmptyState } from '@/components/common/EmptyState';
+import { 
+  Card, 
+  StatCard, 
+  Button, 
+  Input, 
+  Select, 
+  Badge, 
+  Modal, 
+  EmptyState, 
+  PageHeader, 
+  Toolbar, 
+  Skeleton 
+} from '@/components/common';
 import { formatCurrency, formatDualUnitStock } from '@/utils/formatters';
-import { exportToExcel, exportToPdf } from '@/utils/exporter';
+import { exportToExcel } from '@/utils/exporter';
 import { 
   Boxes, 
   Search, 
   FileSpreadsheet, 
-  Download, 
-  Plus, 
   AlertTriangle, 
   PackageCheck, 
   SlidersHorizontal,
-  Building2
+  Building2,
+  Package
 } from 'lucide-react';
 
 export const BranchInventory: React.FC = () => {
@@ -176,111 +182,105 @@ export const BranchInventory: React.FC = () => {
       'Expiry Date': it.inventory?.expiry_date || '',
       'Status': it.isOut ? 'Out of Stock' : it.isLow ? 'Low Stock' : 'In Stock',
     }));
-    exportToExcel(exportData, 'PharmaDesk_Branch_Inventory', 'Stock');
+    exportToExcel(exportData, 'BajrangPharmacy_Branch_Inventory', 'Stock');
   };
 
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-charcoal-200">
-        <div>
-          <h1 className="text-xl font-bold text-charcoal-900 tracking-tight">Branch Inventory & Stock</h1>
-          <p className="text-xs text-charcoal-500 mt-0.5">
-            Independent stock tracking per branch using dual-unit strips and pieces.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {user?.role === 'master_admin' && (
-            <div className="flex items-center gap-1.5 bg-white border border-charcoal-200 rounded px-2.5 py-1">
-              <Building2 className="w-3.5 h-3.5 text-charcoal-500" />
-              <select
-                value={selectedBranchFilter}
-                onChange={(e) => setSelectedBranchFilter(e.target.value)}
-                className="text-xs font-semibold text-charcoal-800 bg-transparent focus:outline-none cursor-pointer"
-              >
-                <option value="all">All Branches (Consolidated)</option>
-                {branches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name} ({b.branch_code})</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <Button variant="outline" size="sm" onClick={handleExportExcel}>
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1 text-emerald-700" />
-            Excel
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Branch Inventory & Stock"
+        subtitle="Independent stock tracking per branch using dual-unit strips and loose pieces."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="md" onClick={handleExportExcel} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
+              Export Excel
+            </Button>
+          </div>
+        }
+      />
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="p-4 bg-white">
-          <span className="text-[11px] font-bold text-charcoal-500 uppercase tracking-wider block">
-            Total Catalog Medicines
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-charcoal-900">{totalItemsCount}</span>
-            <Boxes className="w-5 h-5 text-charcoal-400" />
-          </div>
-        </Card>
+        <StatCard
+          label="Total Catalog Medicines"
+          value={totalItemsCount}
+          icon={<Boxes className="w-5 h-5 text-charcoal-400" />}
+          variant="default"
+        />
 
-        <Card className="p-4 bg-white border-l-4 border-l-amber-500">
-          <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">
-            Low Stock Alerts
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-amber-900">{lowStockCount}</span>
-            <AlertTriangle className="w-5 h-5 text-amber-600" />
-          </div>
-        </Card>
+        <StatCard
+          label="Low Stock Alerts"
+          value={lowStockCount}
+          icon={<AlertTriangle className="w-5 h-5 text-amber-600" />}
+          subtext="Stock <= threshold limit"
+          variant={lowStockCount > 0 ? 'warning' : 'default'}
+        />
 
-        <Card className="p-4 bg-white border-l-4 border-l-red-500">
-          <span className="text-[11px] font-bold text-red-700 uppercase tracking-wider block">
-            Out of Stock
-          </span>
-          <div className="flex items-baseline justify-between mt-1">
-            <span className="text-2xl font-bold text-red-900">{outOfStockCount}</span>
-            <PackageCheck className="w-5 h-5 text-red-600" />
-          </div>
-        </Card>
+        <StatCard
+          label="Out of Stock Items"
+          value={outOfStockCount}
+          icon={<PackageCheck className="w-5 h-5 text-red-600" />}
+          subtext="Zero pieces in inventory"
+          variant={outOfStockCount > 0 ? 'danger' : 'default'}
+        />
       </div>
 
       {/* Filter Toolbar */}
-      <Card className="p-4 bg-white">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="sm:col-span-2">
-            <Input
-              placeholder="Search inventory by brand name, generic composition, barcode..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              leftIcon={<Search className="w-4 h-4" />}
-            />
-          </div>
+      <Toolbar>
+        <div className="flex-1 min-w-[240px]">
+          <Input
+            placeholder="Search inventory by brand name, generic composition, barcode..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<Search className="w-4 h-4" />}
+          />
+        </div>
 
-          <div>
-            <select
+        <div className="flex flex-wrap items-center gap-2">
+          {user?.role === 'master_admin' && (
+            <div className="w-48">
+              <Select
+                size="md"
+                value={selectedBranchFilter}
+                onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                options={[
+                  { value: 'all', label: 'All Branches (Consolidated)' },
+                  ...branches.map(b => ({ value: b.id, label: `${b.name} (${b.branch_code})` }))
+                ]}
+              />
+            </div>
+          )}
+
+          <div className="w-44">
+            <Select
+              size="md"
               value={stockStatusFilter}
               onChange={(e) => setStockStatusFilter(e.target.value as any)}
-              className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="all">All Inventory Statuses</option>
-              <option value="in_stock">In Stock Only</option>
-              <option value="low_stock">Low Stock Alerts</option>
-              <option value="out_of_stock">Out of Stock Only</option>
-            </select>
+              options={[
+                { value: 'all', label: 'All Stock Statuses' },
+                { value: 'in_stock', label: 'In Stock Only' },
+                { value: 'low_stock', label: 'Low Stock Alerts' },
+                { value: 'out_of_stock', label: 'Out of Stock Only' },
+              ]}
+            />
           </div>
         </div>
-      </Card>
+      </Toolbar>
 
       {/* Inventory Table */}
       <Card className="bg-white overflow-hidden" noPadding>
         {isLoading ? (
-          <div className="py-12 text-center text-xs text-charcoal-500">Loading branch inventory...</div>
+          <div className="p-6 space-y-3">
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+            <Skeleton height={42} className="w-full" />
+          </div>
         ) : filteredList.length === 0 ? (
           <div className="p-8">
             <EmptyState
+              icon={<Package className="w-8 h-8 text-charcoal-400" />}
               title="No inventory records found"
               description="No medicines match the selected filter or catalog is empty. Adjust stock or add medicines."
             />
@@ -290,18 +290,18 @@ export const BranchInventory: React.FC = () => {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-charcoal-200 bg-cream-50 text-charcoal-600 font-semibold uppercase text-[11px]">
-                  <th className="py-2.5 px-4">Medicine Item</th>
-                  <th className="py-2.5 px-3">Dosage / Pack</th>
-                  <th className="py-2.5 px-3">Available Stock (Dual-Unit)</th>
-                  <th className="py-2.5 px-3 text-center">Stock Status</th>
-                  <th className="py-2.5 px-3">Batch / Expiry</th>
-                  <th className="py-2.5 px-3 text-right">Selling Price</th>
-                  <th className="py-2.5 px-3 text-center">Action</th>
+                  <th className="py-3 px-4">Medicine Item</th>
+                  <th className="py-3 px-3">Dosage / Pack</th>
+                  <th className="py-3 px-3">Available Stock (Dual-Unit)</th>
+                  <th className="py-3 px-3 text-center">Stock Status</th>
+                  <th className="py-3 px-3">Batch / Expiry</th>
+                  <th className="py-3 px-3 text-right">Selling Price</th>
+                  <th className="py-3 px-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-charcoal-100">
                 {filteredList.map((item) => (
-                  <tr key={item.medicine.id} className="hover:bg-cream-50/50 transition-colors">
+                  <tr key={item.medicine.id} className="hover:bg-cream-50/60 transition-colors">
                     <td className="py-3 px-4">
                       <span className="font-bold text-charcoal-900 block text-sm">{item.medicine.brand_name}</span>
                       <span className="text-[11px] text-charcoal-500">
@@ -325,11 +325,11 @@ export const BranchInventory: React.FC = () => {
 
                     <td className="py-3 px-3 text-center">
                       {item.isOut ? (
-                        <Badge variant="danger" className="font-bold text-[10px]">OUT OF STOCK</Badge>
+                        <Badge variant="danger" size="sm" className="font-bold">OUT OF STOCK</Badge>
                       ) : item.isLow ? (
-                        <Badge variant="warning" className="font-bold text-[10px]">LOW STOCK</Badge>
+                        <Badge variant="warning" size="sm" className="font-bold">LOW STOCK</Badge>
                       ) : (
-                        <Badge variant="success" className="text-[10px]">IN STOCK</Badge>
+                        <Badge variant="success" size="sm">IN STOCK</Badge>
                       )}
                     </td>
 
@@ -339,8 +339,8 @@ export const BranchInventory: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-3 text-right">
-                      <div className="font-bold text-charcoal-900">{formatCurrency(item.medicine.strip_selling_price)} / str</div>
-                      <div className="text-[10px] text-charcoal-500">({formatCurrency(item.medicine.piece_selling_price)} / pc)</div>
+                      <div className="font-bold text-charcoal-900 font-mono">{formatCurrency(item.medicine.strip_selling_price)} / str</div>
+                      <div className="text-[10px] text-charcoal-500 font-mono">({formatCurrency(item.medicine.piece_selling_price)} / pc)</div>
                     </td>
 
                     <td className="py-3 px-3 text-center">
@@ -348,10 +348,9 @@ export const BranchInventory: React.FC = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => openAdjustModal(item.medicine, item.inventory)}
-                        className="h-7 text-xs px-2"
+                        leftIcon={<SlidersHorizontal className="w-3.5 h-3.5" />}
                         title="Add or Adjust Stock"
                       >
-                        <SlidersHorizontal className="w-3.5 h-3.5 mr-1" />
                         Adjust
                       </Button>
                     </td>
@@ -377,7 +376,7 @@ export const BranchInventory: React.FC = () => {
             </div>
           )}
 
-          <div className="p-3 bg-cream-100 rounded border border-charcoal-200 text-xs space-y-1">
+          <div className="p-3.5 bg-cream-100 rounded-lg border border-charcoal-200 text-xs space-y-1">
             <p className="font-bold text-charcoal-900">{selectedItem?.medicine.brand_name} ({selectedItem?.medicine.strength || ''})</p>
             <p className="text-charcoal-600">Pack configuration: 1 strip = {selectedItem?.medicine.pieces_per_strip} pieces</p>
             <p className="font-semibold text-charcoal-800">
@@ -386,34 +385,26 @@ export const BranchInventory: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                Operation Type *
-              </label>
-              <select
-                value={adjustType}
-                onChange={(e) => setAdjustType(e.target.value as any)}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                <option value="add">Add Stock (Purchase / Restock)</option>
-                <option value="subtract">Subtract Stock (Damage / Return)</option>
-                <option value="set">Set Exact Total Stock</option>
-              </select>
-            </div>
+            <Select
+              label="Operation Type *"
+              value={adjustType}
+              onChange={(e) => setAdjustType(e.target.value as any)}
+              options={[
+                { value: 'add', label: 'Add Stock (Purchase / Restock)' },
+                { value: 'subtract', label: 'Subtract Stock (Damage / Return)' },
+                { value: 'set', label: 'Set Exact Total Stock' },
+              ]}
+            />
 
-            <div>
-              <label className="block text-xs font-semibold text-charcoal-700 uppercase tracking-wider mb-1">
-                Stock Entry Unit *
-              </label>
-              <select
-                value={adjustUnit}
-                onChange={(e) => setAdjustUnit(e.target.value as any)}
-                className="w-full text-xs font-medium border border-charcoal-200 rounded-md py-2 px-3 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
-              >
-                <option value="strip">Strips / Packets</option>
-                <option value="piece">Loose Pieces</option>
-              </select>
-            </div>
+            <Select
+              label="Stock Entry Unit *"
+              value={adjustUnit}
+              onChange={(e) => setAdjustUnit(e.target.value as any)}
+              options={[
+                { value: 'strip', label: 'Strips / Packets' },
+                { value: 'piece', label: 'Loose Pieces' },
+              ]}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -427,7 +418,7 @@ export const BranchInventory: React.FC = () => {
             />
             <div className="flex flex-col justify-end pb-1 text-xs text-charcoal-600">
               <span>Conversion Preview:</span>
-              <span className="font-bold text-charcoal-900">
+              <span className="font-bold text-charcoal-900 font-mono">
                 {adjustUnit === 'strip'
                   ? `${adjustQty * (selectedItem?.medicine.pieces_per_strip || 10)} total pieces`
                   : `${adjustQty} pieces`}

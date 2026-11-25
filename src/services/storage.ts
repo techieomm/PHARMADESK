@@ -9,7 +9,8 @@ import {
   InvoiceItem, 
   PaymentRecord, 
   AuditLog,
-  CartItem
+  CartItem,
+  PaymentMethod
 } from '@/types';
 
 const STORAGE_KEYS = {
@@ -225,12 +226,12 @@ class LocalDatabaseService {
   }
 
   public getProfileByEmployeeId(empId: string): Profile | undefined {
-    return this.getProfiles().find(p => p.employee_id.toUpperCase() === empId.trim().toUpperCase());
+    return this.getProfiles().find(p => p.employee_id.toLowerCase() === empId.trim().toLowerCase());
   }
 
   public createProfile(data: Omit<Profile, 'id' | 'created_at' | 'updated_at'>): Profile {
     const profiles = this.getProfiles();
-    if (profiles.some(p => p.employee_id.toUpperCase() === data.employee_id.trim().toUpperCase())) {
+    if (profiles.some(p => p.employee_id.toLowerCase() === data.employee_id.trim().toLowerCase())) {
       throw new Error(`Employee ID ${data.employee_id} already exists`);
     }
     if (profiles.some(p => p.email.toLowerCase() === data.email.trim().toLowerCase())) {
@@ -413,7 +414,7 @@ class LocalDatabaseService {
     branchId: string;
     customerName: string;
     customerPhone: string;
-    paymentMethod: 'cash' | 'upi' | 'card';
+    paymentMethod: PaymentMethod;
     items: CartItem[];
     notes?: string;
     userId: string;
@@ -499,6 +500,7 @@ class LocalDatabaseService {
       igst_amount: 0,
       total_gst: Number(totalGst.toFixed(2)),
       discount_amount: 0,
+      round_off: 0,
       total_amount: Number(grandTotal.toFixed(2)),
       payment_method: params.paymentMethod,
       payment_status: 'paid',
