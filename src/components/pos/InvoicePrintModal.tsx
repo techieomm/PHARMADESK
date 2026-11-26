@@ -4,7 +4,7 @@ import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/common/Button';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { numberToIndianWords } from '@/core';
-import { Printer, Download, CheckCircle2, Share2, QrCode } from 'lucide-react';
+import { Printer, Download, CheckCircle2, Share2 } from 'lucide-react';
 import { exportToPdf } from '@/utils/exporter';
 import { useBranding } from '@/context/BrandingContext';
 
@@ -30,10 +30,6 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
   };
 
   const amountInWords = numberToIndianWords(invoice.total_amount);
-
-  // Dynamic Indian UPI Payment String
-  const upiPayString = `upi://pay?pa=bajrangpharmacy@okhdfcbank&pn=Bajrang%20Pharmacy&am=${invoice.total_amount.toFixed(2)}&cu=INR&tn=Bill-${invoice.invoice_number}`;
-  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiPayString)}`;
 
   const handleShareWhatsApp = () => {
     const ageStr = invoice.customer_age ? ` (Age: ${invoice.customer_age} Y)` : '';
@@ -271,19 +267,6 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
               <div className="text-[9px] text-charcoal-600 italic pt-0.5">
                 Amount in Words: {amountInWords}
               </div>
-            </div>
-
-            {/* Dynamic UPI QR Code for instant counter payment */}
-            <div className="py-3 text-center flex flex-col items-center justify-center border-b border-dashed border-charcoal-400">
-              <span className="text-[9px] font-bold uppercase tracking-wider mb-1">
-                Scan UPI QR to Pay Exact Amount
-              </span>
-              <img
-                src={upiQrUrl}
-                alt="UPI QR Code"
-                className="w-24 h-24 border border-charcoal-300 rounded p-1 bg-white"
-              />
-              <span className="text-[8px] text-charcoal-500 mt-1 font-mono">bajrangpharmacy@okhdfcbank</span>
             </div>
 
             {/* Statutory Terms & Footer */}
