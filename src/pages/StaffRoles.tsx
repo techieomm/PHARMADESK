@@ -780,7 +780,7 @@ export const StaffRoles: React.FC = () => {
               <Checkbox
                 label="Grant Inventory Management Access (Optional — off by default)"
                 checked={allowInventory}
-                onChange={setAllowInventory}
+                onChange={(e) => setAllowInventory(e.target.checked)}
               />
             </div>
           )}
@@ -852,7 +852,7 @@ export const StaffRoles: React.FC = () => {
               <Checkbox
                 label="Allow Inventory Management Access (Optional)"
                 checked={editAllowInventory}
-                onChange={setEditAllowInventory}
+                onChange={(e) => setEditAllowInventory(e.target.checked)}
               />
             </div>
           )}
