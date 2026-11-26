@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { useBarcodeScanner } from '@/context/BarcodeScannerContext';
 import { repositories } from '@/data/repositories';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   Medicine,
   BranchInventory,
@@ -28,9 +29,11 @@ import {
   formatCurrency,
   formatDualUnitStock,
   calculatePieces,
+  getStockStatus,
 } from '@/utils/formatters';
 import {
   allocateFefoStock,
+  getDaysUntilExpiry,
   calculateInvoiceTotals,
   calculateLineGst,
   generateIdempotencyKey,
@@ -162,6 +165,22 @@ export const PosBilling: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    if (!isSupabaseConfigured()) return;
+    const channel = supabase
+      .channel(`realtime_pos_batches_${billingBranchId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'inventory_batches' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [billingBranchId]);
 
   // Barcode Scan Handler
@@ -253,37 +272,38 @@ export const PosBilling: React.FC = () => {
     }
   };
 
+  const getSellableBatches = (medicineId: string) => {
+    return batches.filter(
+      (b) =>
+        b.medicine_id === medicineId &&
+        b.is_active &&
+        b.stock_pieces > 0 &&
+        (!b.expiry_date || getDaysUntilExpiry(b.expiry_date) > 0)
+    );
+  };
+
   // Add item to cart with FEFO batch selection & expiry checks
   const addMedicineToCart = (med: Medicine, preferredBatchNumber?: string) => {
     setErrorMessage(null);
-    const medBatches = batches.filter(
-      (b) => b.medicine_id === med.id && b.is_active && b.stock_pieces > 0
-    );
+    const medBatches = getSellableBatches(med.id);
+    const totalAvailablePieces = medBatches.reduce((sum, b) => sum + b.stock_pieces, 0);
 
-    if (medBatches.length === 0) {
+    if (medBatches.length === 0 || totalAvailablePieces <= 0) {
       setErrorMessage(`No sellable stock for "${med.brand_name}". Batches empty or expired.`);
       return;
     }
 
-    // FEFO Allocation preview
-    const fefoAlloc = allocateFefoStock(medBatches, med.pieces_per_strip);
-    if (!fefoAlloc.isFullyAllocated) {
-      setErrorMessage(`Insufficient pieces for "${med.brand_name}". Sellable: ${fefoAlloc.totalAllocatedPieces} pcs.`);
-      return;
-    }
-
+    const piecesPerStrip = Math.max(1, med.pieces_per_strip || 1);
     const primaryBatch = preferredBatchNumber
       ? medBatches.find((b) => b.batch_number === preferredBatchNumber) || medBatches[0]
       : medBatches[0];
-
-    const isNearExpiry = fefoAlloc.warnings.length > 0;
 
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.medicine.id === med.id);
       if (idx >= 0) {
         const existing = prev[idx];
         const nextQty = existing.unit_quantity + 1;
-        const totalPieces = calculatePieces(nextQty, existing.selected_unit, med.pieces_per_strip);
+        const totalPieces = calculatePieces(nextQty, existing.selected_unit, piecesPerStrip);
 
         const checkAlloc = allocateFefoStock(medBatches, totalPieces);
         if (!checkAlloc.isFullyAllocated) {
@@ -296,13 +316,28 @@ export const PosBilling: React.FC = () => {
           ...existing,
           unit_quantity: nextQty,
           item_total: Number((existing.unit_price * nextQty).toFixed(2)),
+          available_pieces: totalAvailablePieces,
           required_pieces: totalPieces,
         };
         return updated;
       } else {
-        const defaultUnit: 'strip' | 'piece' = med.strip_selling_price > 0 ? 'strip' : 'piece';
-        const price = defaultUnit === 'strip' ? med.strip_selling_price : med.piece_selling_price;
-        const reqPieces = calculatePieces(1, defaultUnit, med.pieces_per_strip);
+        // If strip price is valid AND at least 1 full strip is available, default to strip; otherwise piece
+        const canDefaultStrip = med.strip_selling_price > 0 && totalAvailablePieces >= piecesPerStrip;
+        const defaultUnit: 'strip' | 'piece' = canDefaultStrip ? 'strip' : 'piece';
+        const fallbackPiecePrice =
+          med.piece_selling_price > 0
+            ? med.piece_selling_price
+            : Number(((med.strip_selling_price || med.mrp || 0) / piecesPerStrip).toFixed(2));
+        const price = defaultUnit === 'strip' ? med.strip_selling_price : fallbackPiecePrice;
+        const reqPieces = calculatePieces(1, defaultUnit, piecesPerStrip);
+
+        const fefoAlloc = allocateFefoStock(medBatches, reqPieces);
+        if (!fefoAlloc.isFullyAllocated) {
+          setErrorMessage(`Insufficient pieces for "${med.brand_name}". Sellable: ${fefoAlloc.totalAllocatedPieces} pcs.`);
+          return prev;
+        }
+
+        const isNearExpiry = fefoAlloc.warnings.length > 0;
 
         return [
           ...prev,
@@ -313,7 +348,7 @@ export const PosBilling: React.FC = () => {
             unit_quantity: 1,
             unit_price: price,
             item_total: price,
-            available_pieces: fefoAlloc.totalAllocatedPieces,
+            available_pieces: totalAvailablePieces,
             required_pieces: reqPieces,
             warning: isNearExpiry ? 'Expires in <90 days' : undefined,
           },
@@ -489,6 +524,15 @@ export const PosBilling: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<RefreshCw className="w-3.5 h-3.5 text-charcoal-600" />}
+            onClick={loadData}
+            title="Refresh live stock from inventory"
+          >
+            Sync Stock
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -699,14 +743,31 @@ export const PosBilling: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              setErrorMessage(null);
                               const newUnit = item.selected_unit === 'strip' ? 'piece' : 'strip';
-                              const newPrice = newUnit === 'strip' ? item.medicine.strip_selling_price : item.medicine.piece_selling_price;
+                              const medBatches = getSellableBatches(item.medicine.id);
+                              const pps = Math.max(1, item.medicine.pieces_per_strip || 1);
+                              const reqPieces = calculatePieces(item.unit_quantity, newUnit, pps);
+                              const checkAlloc = allocateFefoStock(medBatches, reqPieces);
+                              if (!checkAlloc.isFullyAllocated) {
+                                setErrorMessage(
+                                  `Cannot switch "${item.medicine.brand_name}" to ${newUnit}. Available: ${checkAlloc.totalAllocatedPieces} pieces.`
+                                );
+                                return;
+                              }
+                              const newPrice =
+                                newUnit === 'strip'
+                                  ? item.medicine.strip_selling_price
+                                  : item.medicine.piece_selling_price > 0
+                                  ? item.medicine.piece_selling_price
+                                  : Number(((item.medicine.strip_selling_price || item.medicine.mrp || 0) / pps).toFixed(2));
                               const updated = [...cart];
                               updated[index] = {
                                 ...item,
                                 selected_unit: newUnit,
                                 unit_price: newPrice,
                                 item_total: Number((newPrice * item.unit_quantity).toFixed(2)),
+                                required_pieces: reqPieces,
                               };
                               setCart(updated);
                             }}
@@ -723,10 +784,17 @@ export const PosBilling: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
+                                setErrorMessage(null);
                                 if (item.unit_quantity > 1) {
+                                  const nextQty = item.unit_quantity - 1;
+                                  const reqPieces = calculatePieces(nextQty, item.selected_unit, item.medicine.pieces_per_strip);
                                   const updated = [...cart];
-                                  updated[index].unit_quantity -= 1;
-                                  updated[index].item_total = Number((item.unit_price * updated[index].unit_quantity).toFixed(2));
+                                  updated[index] = {
+                                    ...item,
+                                    unit_quantity: nextQty,
+                                    item_total: Number((item.unit_price * nextQty).toFixed(2)),
+                                    required_pieces: reqPieces,
+                                  };
                                   setCart(updated);
                                 }
                               }}
@@ -740,9 +808,24 @@ export const PosBilling: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
+                                setErrorMessage(null);
+                                const nextQty = item.unit_quantity + 1;
+                                const reqPieces = calculatePieces(nextQty, item.selected_unit, item.medicine.pieces_per_strip);
+                                const medBatches = getSellableBatches(item.medicine.id);
+                                const checkAlloc = allocateFefoStock(medBatches, reqPieces);
+                                if (!checkAlloc.isFullyAllocated) {
+                                  setErrorMessage(
+                                    `Cannot add more "${item.medicine.brand_name}". Available: ${checkAlloc.totalAllocatedPieces} pieces.`
+                                  );
+                                  return;
+                                }
                                 const updated = [...cart];
-                                updated[index].unit_quantity += 1;
-                                updated[index].item_total = Number((item.unit_price * updated[index].unit_quantity).toFixed(2));
+                                updated[index] = {
+                                  ...item,
+                                  unit_quantity: nextQty,
+                                  item_total: Number((item.unit_price * nextQty).toFixed(2)),
+                                  required_pieces: reqPieces,
+                                };
                                 setCart(updated);
                               }}
                               className="px-1.5 py-1 text-charcoal-600 hover:bg-cream-100"
@@ -940,8 +1023,9 @@ export const PosBilling: React.FC = () => {
           {/* Search Results / Fast Selection Catalog */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {(searchResults.length > 0 ? searchResults : allMedicines.slice(0, 20)).map((med) => {
-              const medBatches = batches.filter((b) => b.medicine_id === med.id && b.is_active && b.stock_pieces > 0);
+              const medBatches = getSellableBatches(med.id);
               const totalStockPieces = medBatches.reduce((acc, curr) => acc + curr.stock_pieces, 0);
+              const stockStatus = getStockStatus(totalStockPieces, med.min_stock_alert);
 
               return (
                 <div
@@ -971,10 +1055,16 @@ export const PosBilling: React.FC = () => {
                     </span>
                     <span
                       className={`text-[11px] font-semibold ${
-                        totalStockPieces > 20 ? 'text-emerald-700' : totalStockPieces > 0 ? 'text-amber-700' : 'text-rose-600'
+                        stockStatus.status === 'in_stock'
+                          ? 'text-emerald-700'
+                          : stockStatus.status === 'low_stock'
+                          ? 'text-amber-700'
+                          : 'text-rose-600'
                       }`}
                     >
-                      {totalStockPieces > 0 ? `${totalStockPieces} pcs` : 'Out of stock'}
+                      {stockStatus.isAvailable
+                        ? `${totalStockPieces} pcs (${stockStatus.label})`
+                        : 'Out of Stock'}
                     </span>
                   </div>
                 </div>

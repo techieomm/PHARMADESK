@@ -32,7 +32,7 @@ export const exportToPdf = (
   headers: string[],
   rows: (string | number)[][],
   filename: string,
-  businessName: string = 'PharmaDesk Healthcare'
+  businessName: string = 'Bajrang Pharmacy'
 ) => {
   const doc = new jsPDF({
     orientation: 'portrait',

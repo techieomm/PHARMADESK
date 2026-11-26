@@ -16,7 +16,7 @@ import {
   Toolbar, 
   Skeleton 
 } from '@/components/common';
-import { formatDualUnitStock, formatCurrency } from '@/utils/formatters';
+import { formatDualUnitStock, formatCurrency, getStockStatus } from '@/utils/formatters';
 import { exportToExcel } from '@/utils/exporter';
 import { AlertTriangle, Plus, FileSpreadsheet, Building2, PackageCheck, Search } from 'lucide-react';
 
@@ -65,17 +65,17 @@ export const LowStock: React.FC = () => {
   }, [selectedBranchFilter, user]);
 
   const lowStockItems = medicines.map(med => {
-    const inv = inventory.find(i => i.medicine_id === med.id);
-    const stockPieces = inv ? inv.stock_pieces : 0;
-    const isOut = stockPieces <= 0;
-    const isLow = !isOut && stockPieces <= (med.min_stock_alert || 20);
+    const medInvRows = inventory.filter(i => i.medicine_id === med.id);
+    const inv = medInvRows.find(i => (i.stock_pieces || 0) > 0) || medInvRows[0];
+    const stockPieces = medInvRows.reduce((sum, row) => sum + (Number(row.stock_pieces) || 0), 0);
+    const statusInfo = getStockStatus(stockPieces, med.min_stock_alert);
 
     return {
       medicine: med,
       inventory: inv,
       stockPieces,
-      isOut,
-      isLow,
+      isOut: statusInfo.isOutOfStock,
+      isLow: statusInfo.isLowStock,
       dual: formatDualUnitStock(stockPieces, med.pieces_per_strip),
     };
   }).filter(item => item.isOut || item.isLow);

@@ -71,14 +71,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasPermission = (key: keyof SubAdminPermissions): boolean => {
     if (!user) return false;
     if (user.role === 'master_admin') return true;
+
+    // Explicit permission override if set on user profile
+    if (user.permissions && typeof user.permissions[key] === 'boolean') {
+      return Boolean(user.permissions[key]);
+    }
+
     if (user.role === 'branch_manager') {
-      return ['view_branch_dashboard', 'manage_inventory', 'view_invoices', 'access_billing', 'view_branch_reports'].includes(key);
+      return [
+        'view_branch_dashboard',
+        'manage_inventory',
+        'view_invoices',
+        'access_billing',
+        'access_prescription_billing',
+        'view_prescription_history',
+        'manage_doctors',
+        'view_branch_reports',
+      ].includes(key);
     }
     if (user.role === 'inventory_manager') {
       return ['manage_medicines', 'manage_inventory'].includes(key);
     }
     if (user.role === 'billing_employee') {
       return ['access_billing', 'view_invoices'].includes(key);
+    }
+    if (user.role === 'prescription_employee') {
+      return ['access_prescription_billing', 'view_prescription_history'].includes(key);
     }
     if (user.role === 'sub_admin') {
       return Boolean(user.permissions && user.permissions[key]);

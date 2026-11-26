@@ -3,12 +3,18 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { BranchProvider } from '@/context/BranchContext';
 import { BarcodeScannerProvider } from '@/context/BarcodeScannerContext';
+import { BrandingProvider } from '@/context/BrandingContext';
+import { BrandLogo } from '@/components/common/BrandLogo';
+import { SubAdminPermissions } from '@/types';
 import { Layout } from '@/components/layout/Layout';
 import { Login } from '@/pages/Login';
 import { ChangePassword } from '@/pages/ChangePassword';
 import { Dashboard } from '@/pages/Dashboard';
 import { PosBilling } from '@/pages/PosBilling';
 import { InvoiceHistory } from '@/pages/InvoiceHistory';
+import { PrescriptionSlipBilling } from '@/pages/PrescriptionSlipBilling';
+import { PrescriptionHistory } from '@/pages/PrescriptionHistory';
+import { Doctors } from '@/pages/Doctors';
 import { MedicineMaster } from '@/pages/MedicineMaster';
 import { BranchInventory } from '@/pages/BranchInventory';
 import { StockOperations } from '@/pages/StockOperations';
@@ -31,20 +37,23 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { SupabaseNotConfiguredScreen } from '@/components/layout/SupabaseNotConfiguredScreen';
 
 // Route Guard Component
-const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({
+const ProtectedRoute: React.FC<{
+  children: React.ReactNode;
+  allowedRoles?: string[];
+  requiredPermission?: keyof SubAdminPermissions;
+}> = ({
   children,
   allowedRoles,
+  requiredPermission,
 }) => {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, hasPermission } = useAuth();
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded bg-charcoal-800 flex items-center justify-center text-brand-400 font-bold text-lg animate-pulse">
-            PD
-          </div>
-          <span className="text-xs font-semibold text-charcoal-600">Loading PharmaDesk...</span>
+          <BrandLogo size="lg" className="animate-pulse" />
+          <span className="text-xs font-semibold text-charcoal-600">Loading Bajrang Pharmacy...</span>
         </div>
       </div>
     );
@@ -60,8 +69,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: strin
     return <Navigate to="/change-password" replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  const isRoleAllowed = !allowedRoles || allowedRoles.includes(user.role);
+  const isPermAllowed = requiredPermission ? hasPermission(requiredPermission) : false;
+
+  if ((allowedRoles || requiredPermission) && !isRoleAllowed && !isPermAllowed) {
     // If user's role isn't allowed on this specific route, navigate to their primary landing page
+    if (user.role === 'prescription_employee') return <Navigate to="/prescription-slips" replace />;
     if (user.role === 'billing_employee') return <Navigate to="/pos" replace />;
     if (user.role === 'inventory_manager') return <Navigate to="/inventory" replace />;
     return <Navigate to="/" replace />;
@@ -78,10 +91,8 @@ const ChangePasswordRoute: React.FC = () => {
     return (
       <div className="min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded bg-charcoal-800 flex items-center justify-center text-brand-400 font-bold text-lg animate-pulse">
-            PD
-          </div>
-          <span className="text-xs font-semibold text-charcoal-600">Loading PharmaDesk...</span>
+          <BrandLogo size="lg" className="animate-pulse" />
+          <span className="text-xs font-semibold text-charcoal-600">Loading Bajrang Pharmacy...</span>
         </div>
       </div>
     );
@@ -111,10 +122,11 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <BranchProvider>
-          <BarcodeScannerProvider>
-            <Routes>
+      <BrandingProvider>
+        <AuthProvider>
+          <BranchProvider>
+            <BarcodeScannerProvider>
+              <Routes>
             {/* Public Auth Route */}
             <Route path="/login" element={<Login />} />
 
@@ -141,7 +153,10 @@ export const App: React.FC = () => {
               <Route
                 path="pos"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}>
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    requiredPermission="access_billing"
+                  >
                     <PosBilling />
                   </ProtectedRoute>
                 }
@@ -149,7 +164,10 @@ export const App: React.FC = () => {
               <Route
                 path="invoices"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}>
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    requiredPermission="view_invoices"
+                  >
                     <InvoiceHistory />
                   </ProtectedRoute>
                 }
@@ -157,7 +175,10 @@ export const App: React.FC = () => {
               <Route
                 path="returns"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}>
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    requiredPermission="access_billing"
+                  >
                     <Returns />
                   </ProtectedRoute>
                 }
@@ -165,8 +186,44 @@ export const App: React.FC = () => {
               <Route
                 path="customers"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}>
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    requiredPermission="access_billing"
+                  >
                     <Customers />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="prescription-slips"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee']}
+                    requiredPermission="access_prescription_billing"
+                  >
+                    <PrescriptionSlipBilling />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="prescription-history"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee']}
+                    requiredPermission="view_prescription_history"
+                  >
+                    <PrescriptionHistory />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="doctors"
+                element={
+                  <ProtectedRoute
+                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}
+                    requiredPermission="manage_doctors"
+                  >
+                    <Doctors />
                   </ProtectedRoute>
                 }
               />
@@ -308,6 +365,7 @@ export const App: React.FC = () => {
         </BarcodeScannerProvider>
       </BranchProvider>
     </AuthProvider>
+    </BrandingProvider>
     </BrowserRouter>
   );
 };

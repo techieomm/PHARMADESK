@@ -10,7 +10,10 @@ import {
   PaymentRecord, 
   AuditLog,
   CartItem,
-  PaymentMethod
+  PaymentMethod,
+  Doctor,
+  PrescriptionSlip,
+  SlipSequencePreview
 } from '@/types';
 
 const STORAGE_KEYS = {
@@ -24,6 +27,9 @@ const STORAGE_KEYS = {
   INVOICE_ITEMS: 'pharmadesk_invoice_items',
   PAYMENTS: 'pharmadesk_payments',
   AUDIT_LOGS: 'pharmadesk_audit_logs',
+  DOCTORS: 'bajrang_doctors',
+  PRESCRIPTION_SLIPS: 'bajrang_prescription_slips',
+  SLIP_SEQUENCES: 'bajrang_slip_sequences',
   CURRENT_USER: 'pharmadesk_auth_user',
   INITIALIZED: 'pharmadesk_initialized_v1',
 };
@@ -31,14 +37,14 @@ const STORAGE_KEYS = {
 // Default System Entities (Business & Initial 2 Branches)
 const DEFAULT_BUSINESS: Business = {
   id: 'b0000000-0000-0000-0000-000000000001',
-  name: 'PharmaDesk Healthcare',
-  legal_name: 'PharmaDesk Pharmacy Private Limited',
-  gstin: '27AABCP1234F1Z5',
-  pan: 'AABCP1234F',
-  drug_license: 'MH-MZ2-123456 & MH-MZ2-654321',
-  phone: '+91 98200 12345',
-  email: 'contact@pharmadesk.local',
-  address: 'Corporate Plaza, Bandra Kurla Complex, Mumbai, Maharashtra 400051',
+  name: 'Bajrang Pharmacy',
+  legal_name: 'Bajrang Pharmacy Retail LLP',
+  gstin: '09CMVPM3439A1ZS',
+  pan: 'CMVPM3439A',
+  drug_license: 'UP-LKO-20B-10928 & UP-LKO-21B-10929',
+  phone: '+91 9455008480',
+  email: 'bajrangpharma80@gmail.com',
+  address: 'Ambedkar Nagar Chainpur Chauraha, Uttar Pradesh',
   currency: 'INR',
   timezone: 'Asia/Kolkata',
   created_at: new Date().toISOString(),
@@ -49,17 +55,17 @@ const DEFAULT_BRANCHES: Branch[] = [
   {
     id: 'c0000000-0000-0000-0000-000000000001',
     business_id: 'b0000000-0000-0000-0000-000000000001',
-    branch_code: 'BR01',
-    name: 'PharmaDesk — Branch 01 (Central Dispensary)',
-    address: 'Shop No. 4, Market Promenade, Station Road',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    pincode: '400001',
-    phone: '+91 98200 54321',
-    email: 'branch01@pharmadesk.local',
-    gstin: '27AABCP1234F1Z5',
-    drug_license: 'MH-MZ2-123456',
-    invoice_prefix: 'BR01',
+    branch_code: 'LKO1',
+    name: 'Bajrang Pharmacy — Hazratganj Main Dispensary',
+    address: 'Shop 12-14, Hazratganj Commercial Complex, MG Marg',
+    city: 'Lucknow',
+    state: 'Uttar Pradesh',
+    pincode: '226001',
+    phone: '+91 522 261 4001',
+    email: 'hazratganj@bajrangpharmacy.in',
+    gstin: '09CMVPM3439A1ZS',
+    drug_license: 'UP-LKO-20B-10928 & UP-LKO-21B-10929',
+    invoice_prefix: 'LKO1',
     invoice_sequence: 1001,
     is_active: true,
     created_at: new Date().toISOString(),
@@ -68,17 +74,17 @@ const DEFAULT_BRANCHES: Branch[] = [
   {
     id: 'c0000000-0000-0000-0000-000000000002',
     business_id: 'b0000000-0000-0000-0000-000000000001',
-    branch_code: 'BR02',
-    name: 'PharmaDesk — Branch 02 (Metro Health Hub)',
-    address: 'Plot 18, Commercial Block, Ring Road',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    pincode: '400053',
-    phone: '+91 98200 67890',
-    email: 'branch02@pharmadesk.local',
-    gstin: '27AABCP1234F1Z5',
-    drug_license: 'MH-MZ2-654321',
-    invoice_prefix: 'BR02',
+    branch_code: 'LKO2',
+    name: 'Bajrang Pharmacy — Alambagh Health Hub',
+    address: 'Plot 45, Kanpur Road, Near Metro Station, Alambagh',
+    city: 'Lucknow',
+    state: 'Uttar Pradesh',
+    pincode: '226005',
+    phone: '+91 522 245 8890',
+    email: 'alambagh@bajrangpharmacy.in',
+    gstin: '09CMVPM3439A1ZS',
+    drug_license: 'UP-LKO-20B-20411 & UP-LKO-21B-20412',
+    invoice_prefix: 'LKO2',
     invoice_sequence: 1001,
     is_active: true,
     created_at: new Date().toISOString(),
@@ -93,8 +99,8 @@ const DEFAULT_PROFILES: Profile[] = [
     business_id: 'b0000000-0000-0000-0000-000000000001',
     employee_id: 'EMP001',
     full_name: 'Master Admin',
-    email: 'admin@pharmadesk.local',
-    phone: '+91 98200 12345',
+    email: 'admin@bajrangpharmacy.in',
+    phone: '+91 9455008480',
     role: 'master_admin',
     primary_branch_id: 'c0000000-0000-0000-0000-000000000001',
     is_active: true,
@@ -615,6 +621,134 @@ class LocalDatabaseService {
       created_at: new Date().toISOString(),
     });
     this.setItem(STORAGE_KEYS.AUDIT_LOGS, logs);
+  }
+
+  // --- Doctors & Prescription Slips (Demo / Test Support) ---
+  public getDoctors(includeInactive: boolean = false): Doctor[] {
+    const list = this.getItem<Doctor[]>(STORAGE_KEYS.DOCTORS, []);
+    return includeInactive ? list : list.filter((d) => d.is_active);
+  }
+
+  public createDoctor(data: Omit<Doctor, 'id' | 'created_at' | 'updated_at'>): Doctor {
+    const list = this.getItem<Doctor[]>(STORAGE_KEYS.DOCTORS, []);
+    const now = new Date().toISOString();
+    const doc: Doctor = {
+      ...data,
+      id: crypto.randomUUID(),
+      created_at: now,
+      updated_at: now,
+    };
+    list.unshift(doc);
+    this.setItem(STORAGE_KEYS.DOCTORS, list);
+    return doc;
+  }
+
+  public updateDoctor(id: string, updates: Partial<Doctor>): Doctor {
+    const list = this.getItem<Doctor[]>(STORAGE_KEYS.DOCTORS, []);
+    const idx = list.findIndex((d) => d.id === id);
+    if (idx === -1) throw new Error('Doctor not found');
+    list[idx] = { ...list[idx], ...updates, updated_at: new Date().toISOString() };
+    this.setItem(STORAGE_KEYS.DOCTORS, list);
+    return list[idx];
+  }
+
+  private getFyCode(): string {
+    const now = new Date();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+    const start = month < 3 ? year - 1 : year;
+    const end = start + 1;
+    return `${String(start % 100).padStart(2, '0')}${String(end % 100).padStart(2, '0')}`;
+  }
+
+  public getNextSlipPreview(branchId: string): SlipSequencePreview {
+    const branch = this.getBranchById(branchId) || this.getBranches()[0];
+    const code = (branch?.branch_code || 'LKO1').toUpperCase();
+    const seqMap = this.getItem<Record<string, { serial: number; rx: number }>>(STORAGE_KEYS.SLIP_SEQUENCES, {});
+    const current = seqMap[branchId] || { serial: 1, rx: 1 };
+    const fy = this.getFyCode();
+    return {
+      serial_seq: current.serial,
+      serial_number: `${code}-SN-${String(current.serial).padStart(6, '0')}`,
+      prescription_seq: current.rx,
+      prescription_number: `RX-${code}-${fy}-${String(current.rx).padStart(6, '0')}`,
+    };
+  }
+
+  public createPrescriptionSlip(params: {
+    branchId: string;
+    patientName: string;
+    doctorId: string;
+    consultationFee: number;
+    patientPhone?: string;
+    patientAge?: number;
+    patientGender?: string;
+    patientAddress?: string;
+    paymentMethod?: 'cash' | 'upi' | 'card';
+    notes?: string;
+    userId?: string;
+    userName?: string;
+  }): PrescriptionSlip {
+    if (!params.patientName.trim()) throw new Error('Patient name is required');
+    if (params.consultationFee < 0) throw new Error('Consultation fee cannot be negative');
+
+    const branch = this.getBranchById(params.branchId) || this.getBranches()[0];
+    if (!branch) throw new Error('Branch not found');
+    const doctor = this.getDoctors(true).find((d) => d.id === params.doctorId && d.is_active);
+    if (!doctor) throw new Error('Selected doctor not found or inactive');
+
+    const seqMap = this.getItem<Record<string, { serial: number; rx: number }>>(STORAGE_KEYS.SLIP_SEQUENCES, {});
+    const current = seqMap[params.branchId] || { serial: 1, rx: 1 };
+    const code = branch.branch_code.toUpperCase();
+    const fy = this.getFyCode();
+
+    const serialNumber = `${code}-SN-${String(current.serial).padStart(6, '0')}`;
+    const prescriptionNumber = `RX-${code}-${fy}-${String(current.rx).padStart(6, '0')}`;
+
+    seqMap[params.branchId] = { serial: current.serial + 1, rx: current.rx + 1 };
+    this.setItem(STORAGE_KEYS.SLIP_SEQUENCES, seqMap);
+
+    const now = new Date().toISOString();
+    const slip: PrescriptionSlip = {
+      id: crypto.randomUUID(),
+      business_id: branch.business_id,
+      branch_id: params.branchId,
+      serial_seq: current.serial,
+      serial_number: serialNumber,
+      prescription_seq: current.rx,
+      prescription_number: prescriptionNumber,
+      patient_name: params.patientName.trim(),
+      patient_phone: params.patientPhone?.trim() || undefined,
+      patient_age: params.patientAge,
+      patient_gender: params.patientGender,
+      patient_address: params.patientAddress?.trim() || undefined,
+      doctor_id: doctor.id,
+      doctor_name: doctor.full_name,
+      doctor_qualification: doctor.qualification,
+      doctor_registration_number: doctor.registration_number,
+      consultation_fee: Number(params.consultationFee.toFixed(2)),
+      payment_method: params.paymentMethod || 'cash',
+      payment_status: 'paid',
+      notes: params.notes?.trim() || undefined,
+      slip_date: now,
+      created_by: params.userId,
+      created_by_name: params.userName,
+      created_at: now,
+      updated_at: now,
+      branch,
+      doctor,
+    };
+
+    const slips = this.getItem<PrescriptionSlip[]>(STORAGE_KEYS.PRESCRIPTION_SLIPS, []);
+    slips.unshift(slip);
+    this.setItem(STORAGE_KEYS.PRESCRIPTION_SLIPS, slips);
+    return slip;
+  }
+
+  public getPrescriptionSlips(branchId?: string): PrescriptionSlip[] {
+    const slips = this.getItem<PrescriptionSlip[]>(STORAGE_KEYS.PRESCRIPTION_SLIPS, []);
+    const filtered = branchId && branchId !== 'all' ? slips.filter((s) => s.branch_id === branchId) : slips;
+    return filtered.sort((a, b) => new Date(b.slip_date).getTime() - new Date(a.slip_date).getTime());
   }
 }
 

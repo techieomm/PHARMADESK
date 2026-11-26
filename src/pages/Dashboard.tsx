@@ -5,7 +5,7 @@ import { useBranch } from '@/context/BranchContext';
 import { billingService, inventoryService, medicineService } from '@/services/api';
 import { Invoice, BranchInventory, Medicine } from '@/types';
 import { Card, StatCard, Button, Badge, EmptyState, PageHeader, Skeleton } from '@/components/common';
-import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatCurrency, formatDate, getStockStatus } from '@/utils/formatters';
 import { 
   TrendingUp, 
   Receipt, 
@@ -207,9 +207,20 @@ export const Dashboard: React.FC = () => {
     };
   }, [metrics.todaySales, metrics.yesterdaySales]);
 
-  // Stock health counts
-  const lowStockCount = inventory.filter(i => i.stock_pieces > 0 && i.stock_pieces <= 20).length;
-  const outOfStockCount = inventory.filter(i => i.stock_pieces === 0).length;
+  // Stock health counts calculated consistently from medicine catalog + active batch inventory
+  const { lowStockCount, outOfStockCount } = useMemo(() => {
+    let low = 0;
+    let out = 0;
+    for (const med of medicines) {
+      const totalPieces = inventory
+        .filter((i) => i.medicine_id === med.id)
+        .reduce((sum, row) => sum + (Number(row.stock_pieces) || 0), 0);
+      const statusInfo = getStockStatus(totalPieces, med.min_stock_alert);
+      if (statusInfo.isOutOfStock) out += 1;
+      else if (statusInfo.isLowStock) low += 1;
+    }
+    return { lowStockCount: low, outOfStockCount: out };
+  }, [medicines, inventory]);
 
   return (
     <div className="space-y-6">

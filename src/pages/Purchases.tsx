@@ -92,6 +92,9 @@ export const Purchases: React.FC = () => {
         ? selectedBranchId 
         : 'c0000000-0000-0000-0000-000000000001';
 
+      const selectedMed = medicines.find((m) => m.id === selectedMedId);
+      const piecesPerUnit = Math.max(1, selectedMed?.pieces_per_strip || 10);
+
       await repositories.purchases.createPurchaseInvoice({
         branchId,
         supplierId,
@@ -103,7 +106,7 @@ export const Purchases: React.FC = () => {
             batch_number: batchNumber,
             expiry_date: expiryDate,
             quantity_units: quantity,
-            pieces_per_unit: 10,
+            pieces_per_unit: piecesPerUnit,
             free_quantity_units: freeQuantity,
             purchase_rate: purchaseRate,
             mrp,
@@ -320,7 +323,9 @@ export const Purchases: React.FC = () => {
           <div className="p-3 bg-cream-100 rounded-lg text-xs space-y-1">
             <div className="flex justify-between">
               <span className="text-charcoal-600">Total Pieces Added to Stock:</span>
-              <span className="font-bold text-charcoal-900">{(quantity + freeQuantity) * 10} pieces</span>
+              <span className="font-bold text-charcoal-900">
+                {(quantity + freeQuantity) * Math.max(1, medicines.find((m) => m.id === selectedMedId)?.pieces_per_strip || 10)} pieces
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-charcoal-600">Taxable Amount:</span>

@@ -41,10 +41,17 @@ export interface FefoAllocationResult {
  * Calculates days between today and the expiry date.
  */
 export function getDaysUntilExpiry(expiryDateStr: string, referenceDate: Date = new Date()): number {
-  const expiry = new Date(expiryDateStr);
+  let expiry: Date;
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec((expiryDateStr || '').trim());
+  if (isoMatch) {
+    expiry = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  } else {
+    expiry = new Date(expiryDateStr);
+  }
+  if (isNaN(expiry.getTime())) return 0;
   const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
   const diffTime = expiry.getTime() - today.getTime();
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
 }
 
 /**

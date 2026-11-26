@@ -10,7 +10,11 @@ import {
   CartItem,
   PaymentMethod,
   AuditLog,
-  DayBookData
+  DayBookData,
+  Doctor,
+  PrescriptionSlip,
+  ConsultationFeeRecord,
+  SlipSequencePreview
 } from '@/types';
 
 /**
@@ -561,17 +565,56 @@ export const medicineService = {
 export const inventoryService = {
   async getBranchInventory(branchId?: string): Promise<BranchInventory[]> {
     if (isSupabaseConfigured()) {
+      // Single source of truth: aggregate active batches from inventory_batches
       let query = supabase
-        .from('branch_inventory')
-        .select('*, medicine:medicine_master(*)');
+        .from('inventory_batches')
+        .select('*, medicine:medicine_master(*)')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .order('expiry_date', { ascending: true });
 
-      if (branchId) {
+      if (branchId && branchId !== 'all') {
         query = query.eq('branch_id', branchId);
       }
 
       const { data, error } = await query;
       if (error) throw new Error(error.message);
-      return (data || []) as BranchInventory[];
+
+      const grouped = new Map<string, BranchInventory>();
+      for (const batch of (data || []) as any[]) {
+        const key = `${batch.branch_id}::${batch.medicine_id}`;
+        const existing = grouped.get(key);
+        if (!existing) {
+          grouped.set(key, {
+            id: batch.id,
+            branch_id: batch.branch_id,
+            medicine_id: batch.medicine_id,
+            stock_pieces: Number(batch.stock_pieces) || 0,
+            rack_location: batch.rack_location,
+            batch_number: batch.batch_number,
+            expiry_date: batch.expiry_date,
+            updated_at: batch.updated_at,
+            medicine: batch.medicine,
+            batches: [batch],
+          });
+        } else {
+          existing.stock_pieces += Number(batch.stock_pieces) || 0;
+          existing.batches = [...(existing.batches || []), batch];
+          if (batch.updated_at > existing.updated_at) {
+            existing.updated_at = batch.updated_at;
+          }
+          // Prefer earliest non-zero batch for display
+          if ((existing.batches?.length || 0) > 1 && Number(batch.stock_pieces) > 0) {
+            const firstPositive = existing.batches?.find((b) => Number(b.stock_pieces) > 0);
+            if (firstPositive) {
+              existing.batch_number = firstPositive.batch_number;
+              existing.expiry_date = firstPositive.expiry_date;
+            }
+          }
+        }
+      }
+
+      return Array.from(grouped.values());
     } else {
       assertLiveDatabase();
       return localDb.getInventory(branchId);
@@ -801,6 +844,240 @@ export const auditService = {
     } else {
       assertLiveDatabase();
       return localDb.getAuditLogs();
+    }
+  },
+};
+
+// ====================================================================
+// DOCTORS MANAGEMENT
+// ====================================================================
+
+export const doctorService = {
+  async getDoctors(includeInactive = false): Promise<Doctor[]> {
+    if (isSupabaseConfigured()) {
+      let query = supabase
+        .from('doctors')
+        .select('*')
+        .order('full_name', { ascending: true });
+
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return (data || []) as Doctor[];
+    } else {
+      assertLiveDatabase();
+      return localDb.getDoctors(includeInactive);
+    }
+  },
+
+  async createDoctor(params: {
+    fullName: string;
+    registrationNumber?: string;
+    specialization?: string;
+    qualification?: string;
+    clinicHospitalName?: string;
+    phone?: string;
+    address?: string;
+    defaultConsultationFee?: number;
+  }): Promise<Doctor> {
+    if (!params.fullName.trim()) {
+      throw new Error('Doctor name is required');
+    }
+
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('doctors')
+        .insert({
+          business_id: 'b0000000-0000-0000-0000-000000000001',
+          full_name: params.fullName.trim(),
+          registration_number: params.registrationNumber?.trim() || 'REG-NA',
+          specialization: params.specialization?.trim() || null,
+          qualification: params.qualification?.trim() || null,
+          clinic_hospital_name: params.clinicHospitalName?.trim() || null,
+          phone: params.phone?.trim() || null,
+          address: params.address?.trim() || null,
+          default_consultation_fee: Math.max(0, Number(params.defaultConsultationFee) || 0),
+          is_active: true,
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data as Doctor;
+    } else {
+      assertLiveDatabase();
+      return localDb.createDoctor({
+        full_name: params.fullName.trim(),
+        registration_number: params.registrationNumber?.trim() || 'REG-NA',
+        specialization: params.specialization?.trim() || undefined,
+        qualification: params.qualification?.trim() || undefined,
+        clinic_hospital_name: params.clinicHospitalName?.trim() || undefined,
+        phone: params.phone?.trim() || undefined,
+        address: params.address?.trim() || undefined,
+        default_consultation_fee: Math.max(0, Number(params.defaultConsultationFee) || 0),
+        is_active: true,
+      });
+    }
+  },
+
+  async updateDoctor(id: string, updates: Partial<Doctor>): Promise<Doctor> {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('doctors')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data as Doctor;
+    } else {
+      assertLiveDatabase();
+      return localDb.updateDoctor(id, updates);
+    }
+  },
+};
+
+// ====================================================================
+// PRESCRIPTION / PATIENT SLIP BILLING (ISOLATED FROM MEDICINE SALES)
+// ====================================================================
+
+export const prescriptionSlipService = {
+  async getNextSequencePreview(branchId: string): Promise<SlipSequencePreview> {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase.rpc('get_next_prescription_slip_preview', {
+        p_branch_id: branchId,
+      });
+      if (error) throw new Error(error.message);
+      return data as SlipSequencePreview;
+    } else {
+      assertLiveDatabase();
+      return localDb.getNextSlipPreview(branchId);
+    }
+  },
+
+  async createSlip(params: {
+    branchId: string;
+    patientName: string;
+    doctorId: string;
+    consultationFee: number;
+    patientPhone?: string;
+    patientAge?: number;
+    patientGender?: string;
+    patientAddress?: string;
+    paymentMethod?: 'cash' | 'upi' | 'card';
+    notes?: string;
+    userId?: string;
+    userName?: string;
+  }): Promise<PrescriptionSlip> {
+    if (!params.patientName.trim()) {
+      throw new Error('Patient name is required');
+    }
+    if (!params.doctorId) {
+      throw new Error('Please select a doctor');
+    }
+    if (params.consultationFee < 0 || isNaN(params.consultationFee)) {
+      throw new Error('Consultation fee must be zero or greater');
+    }
+
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase.rpc('create_prescription_slip_atomic', {
+        p_branch_id: params.branchId,
+        p_patient_name: params.patientName.trim(),
+        p_doctor_id: params.doctorId,
+        p_consultation_fee: Number(params.consultationFee.toFixed(2)),
+        p_patient_phone: params.patientPhone?.trim() || null,
+        p_patient_age: params.patientAge ?? null,
+        p_patient_gender: params.patientGender || null,
+        p_patient_address: params.patientAddress?.trim() || null,
+        p_payment_method: params.paymentMethod || 'cash',
+        p_notes: params.notes?.trim() || null,
+      });
+
+      if (error) throw new Error(error.message);
+      const slipId = (data as { slip_id?: string })?.slip_id;
+      if (!slipId) throw new Error('Prescription slip created, but ID was not returned');
+
+      const slip = await this.getSlipById(slipId);
+      if (!slip) throw new Error('Prescription slip created, but failed to retrieve saved details');
+      return slip;
+    } else {
+      assertLiveDatabase();
+      return localDb.createPrescriptionSlip(params);
+    }
+  },
+
+  async getSlips(branchId?: string): Promise<PrescriptionSlip[]> {
+    if (isSupabaseConfigured()) {
+      let query = supabase
+        .from('prescription_slips')
+        .select('*, branch:branches(*), doctor:doctors(*), creator:profiles!created_by(*)')
+        .order('slip_date', { ascending: false });
+
+      if (branchId && branchId !== 'all') {
+        query = query.eq('branch_id', branchId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return (data || []) as PrescriptionSlip[];
+    } else {
+      assertLiveDatabase();
+      return localDb.getPrescriptionSlips(branchId);
+    }
+  },
+
+  async getSlipById(id: string): Promise<PrescriptionSlip | null> {
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase
+        .from('prescription_slips')
+        .select('*, branch:branches(*), doctor:doctors(*), creator:profiles!created_by(*)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      return (data as PrescriptionSlip) || null;
+    } else {
+      assertLiveDatabase();
+      return localDb.getPrescriptionSlips().find((s) => s.id === id) || null;
+    }
+  },
+
+  async getConsultationFeeRecords(branchId?: string): Promise<ConsultationFeeRecord[]> {
+    if (isSupabaseConfigured()) {
+      let query = supabase
+        .from('consultation_fee_records')
+        .select('*')
+        .order('collected_at', { ascending: false });
+
+      if (branchId && branchId !== 'all') {
+        query = query.eq('branch_id', branchId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return (data || []) as ConsultationFeeRecord[];
+    } else {
+      assertLiveDatabase();
+      return localDb.getPrescriptionSlips(branchId).map((s) => ({
+        id: s.id,
+        business_id: s.business_id,
+        branch_id: s.branch_id,
+        prescription_slip_id: s.id,
+        doctor_id: s.doctor_id,
+        employee_id: s.created_by,
+        fee_amount: s.consultation_fee,
+        payment_method: s.payment_method,
+        status: s.payment_status === 'cancelled' ? 'cancelled' : 'collected',
+        collected_at: s.slip_date,
+        created_at: s.created_at,
+      }));
     }
   },
 };

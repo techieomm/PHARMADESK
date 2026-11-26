@@ -152,7 +152,7 @@ export const DayBook: React.FC = () => {
 
     exportToExcel(
       [...summaryData, { Metric: '---', Value: '---' }, ...invoiceData],
-      `PharmaDesk_DayBook_${dayBook.date}`,
+      `BajrangPharmacy_DayBook_${dayBook.date}`,
       'Day_Book'
     );
   };
@@ -171,10 +171,10 @@ export const DayBook: React.FC = () => {
     ]);
 
     exportToPdf(
-      `PharmaDesk Day Book — ${dayBook.date} (IST)`,
+      `Bajrang Pharmacy Day Book — ${dayBook.date} (IST)`,
       headers,
       rows,
-      `PharmaDesk_DayBook_${dayBook.date}`,
+      `BajrangPharmacy_DayBook_${dayBook.date}`,
       `Gross: ₹${dayBook.summary.gross_sales_amount.toFixed(2)} | Net: ₹${dayBook.summary.net_sales_amount.toFixed(2)} | Cash: ₹${dayBook.summary.cash_collected.toFixed(2)}`
     );
   };

@@ -8,6 +8,7 @@ import { authService } from '@/services/api';
 import { isSupabaseConfigured, getSupabaseProjectRef } from '@/lib/supabase';
 import { IdCard, Mail, Lock, AlertCircle, ShieldCheck, Database, Eye, EyeOff } from 'lucide-react';
 import { SupabaseSetupModal } from '@/components/layout/SupabaseSetupModal';
+import { BrandLogo } from '@/components/common/BrandLogo';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -49,7 +50,9 @@ export const Login: React.FC = () => {
         loggedProfile = await loginWithEmail(email, password);
       }
 
-      if (loggedProfile?.role === 'billing_employee') {
+      if (loggedProfile?.role === 'prescription_employee') {
+        navigate('/prescription-slips');
+      } else if (loggedProfile?.role === 'billing_employee') {
         navigate('/pos');
       } else if (loggedProfile?.role === 'inventory_manager') {
         navigate('/inventory');
@@ -81,11 +84,11 @@ export const Login: React.FC = () => {
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-brand-200">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="inline-flex w-12 h-12 rounded bg-charcoal-800 items-center justify-center text-brand-400 font-bold text-2xl tracking-wider border border-charcoal-700 mb-3 shadow-xs">
-          PD
+        <div className="flex justify-center mb-3">
+          <BrandLogo size="lg" />
         </div>
         <h2 className="text-2xl font-bold tracking-tight text-charcoal-900 font-sans">
-          PHARMA<span className="text-brand-500">DESK</span>
+          BAJRANG <span className="text-brand-500">PHARMACY</span>
         </h2>
         <p className="mt-1 text-xs text-charcoal-500 font-medium tracking-wide uppercase">
           Authorized Pharmacy Portal & Billing Login
@@ -154,7 +157,7 @@ export const Login: React.FC = () => {
               <Input
                 label="Registered Work Email"
                 type="email"
-                placeholder="admin@pharmadesk.local"
+                placeholder="admin@bajrangpharmacy.in"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 leftIcon={<Mail className="w-4 h-4" />}
@@ -261,7 +264,7 @@ export const Login: React.FC = () => {
             type="email"
             value={resetEmail}
             onChange={(e) => setResetEmail(e.target.value)}
-            placeholder="you@pharmadesk.local"
+            placeholder="you@bajrangpharmacy.in"
             required
             autoFocus
           />

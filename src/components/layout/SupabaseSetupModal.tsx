@@ -27,6 +27,7 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({ isOpen, 
     { num: '006', file: 'supabase/migrations/006_fix_login_profiles_rls.sql', desc: 'Fix RLS infinite recursion + guard trigger for profiles' },
     { num: '008', file: 'supabase/migrations/008_employee_id_case_insensitive.sql', desc: 'Case-insensitive employee ID + lower() unique index & lookup' },
     { num: '009', file: 'supabase/migrations/009_complete_password_change.sql', desc: 'complete_password_change RPC for first login setup' },
+    { num: '021', file: 'supabase/migrations/021_bajrang_pharmacy_updates.sql', desc: 'Inventory batch sync fix, doctors RLS, prescription slips & roles' },
   ];
 
   const handleHealthCheck = async () => {

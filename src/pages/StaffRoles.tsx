@@ -33,9 +33,49 @@ const DEFAULT_SUBADMIN_PERMISSIONS: SubAdminPermissions = {
   manage_inventory: true,
   view_invoices: true,
   access_billing: true,
+  access_prescription_billing: true,
+  view_prescription_history: true,
+  manage_doctors: true,
   view_branch_reports: false,
   manage_permitted_employees: false,
 };
+
+const getDefaultPermissionsForRole = (role: AppRole): Partial<SubAdminPermissions> => {
+  switch (role) {
+    case 'prescription_employee':
+      return {
+        access_prescription_billing: true,
+        view_prescription_history: true,
+        access_billing: false,
+        view_invoices: false,
+        manage_doctors: false,
+      };
+    case 'billing_employee':
+      return {
+        access_billing: true,
+        view_invoices: true,
+        access_prescription_billing: false,
+        view_prescription_history: false,
+      };
+    case 'sub_admin':
+      return { ...DEFAULT_SUBADMIN_PERMISSIONS };
+    default:
+      return {};
+  }
+};
+
+const PERMISSION_LABELS: Array<{ key: keyof SubAdminPermissions; label: string }> = [
+  { key: 'access_billing', label: 'Regular Medicine POS Billing' },
+  { key: 'view_invoices', label: 'View Medicine Invoice History' },
+  { key: 'access_prescription_billing', label: 'Prescription / Patient Slip Billing' },
+  { key: 'view_prescription_history', label: 'View Prescription / Slip History' },
+  { key: 'manage_doctors', label: 'Add & Manage Doctors' },
+  { key: 'manage_inventory', label: 'Manage Branch Inventory' },
+  { key: 'manage_medicines', label: 'Manage Medicine Master Catalog' },
+  { key: 'view_branch_dashboard', label: 'View Branch Dashboard' },
+  { key: 'view_branch_reports', label: 'View Branch Financial Reports' },
+  { key: 'manage_permitted_employees', label: 'Manage Branch Employees' },
+];
 
 export const StaffRoles: React.FC = () => {
   const { user } = useAuth();
@@ -124,7 +164,10 @@ export const StaffRoles: React.FC = () => {
         role: formRole,
         branchId: formBranchId,
         initialPassword: formPassword,
-        permissions: formRole === 'sub_admin' ? formPermissions : undefined,
+        permissions:
+          formRole === 'sub_admin' || formRole === 'billing_employee' || formRole === 'prescription_employee'
+            ? formPermissions
+            : undefined,
       });
 
       setIsModalOpen(false);
@@ -238,9 +281,22 @@ export const StaffRoles: React.FC = () => {
     switch (role) {
       case 'master_admin': return 'brand';
       case 'sub_admin': return 'warning';
+      case 'prescription_employee': return 'brand';
       case 'branch_manager': return 'neutral';
       case 'inventory_manager': return 'neutral';
       default: return 'default';
+    }
+  };
+
+  const getRoleDisplay = (role: AppRole) => {
+    switch (role) {
+      case 'master_admin': return 'Master Admin';
+      case 'sub_admin': return 'Sub Admin';
+      case 'branch_manager': return 'Branch Manager';
+      case 'inventory_manager': return 'Inventory Manager';
+      case 'billing_employee': return 'Regular Billing Employee';
+      case 'prescription_employee': return 'Prescription / Slip Employee';
+      default: return role;
     }
   };
 
@@ -296,11 +352,19 @@ export const StaffRoles: React.FC = () => {
 
                     <td className="py-3 px-3">
                       <Badge variant={getRoleBadgeVariant(emp.role) as any} size="sm" className="uppercase font-bold">
-                        {emp.role.replace('_', ' ')}
+                        {getRoleDisplay(emp.role)}
                       </Badge>
-                      {emp.role === 'sub_admin' && (
+                      {user?.role === 'master_admin' && emp.role !== 'master_admin' && (
                         <button
-                          onClick={() => setPermModalUser(emp)}
+                          onClick={() =>
+                            setPermModalUser({
+                              ...emp,
+                              permissions: {
+                                ...getDefaultPermissionsForRole(emp.role),
+                                ...(emp.permissions || {}),
+                              },
+                            })
+                          }
                           className="text-[10px] text-brand-600 hover:underline block mt-0.5 font-semibold"
                         >
                           Configure Permissions
@@ -419,11 +483,19 @@ export const StaffRoles: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
-              label="System Role *"
+              label="Employee Type / System Role *"
               value={formRole}
-              onChange={(e) => setFormRole(e.target.value as AppRole)}
+              onChange={(e) => {
+                const nextRole = e.target.value as AppRole;
+                setFormRole(nextRole);
+                setFormPermissions({
+                  ...DEFAULT_SUBADMIN_PERMISSIONS,
+                  ...getDefaultPermissionsForRole(nextRole),
+                } as SubAdminPermissions);
+              }}
               options={[
-                { value: 'billing_employee', label: 'Billing Employee (POS Only)' },
+                { value: 'billing_employee', label: 'Regular Billing Employee (Medicine POS)' },
+                { value: 'prescription_employee', label: 'Prescription / Slip Billing Employee (OPD Slips)' },
                 { value: 'inventory_manager', label: 'Inventory Manager (Stock & Catalog)' },
                 { value: 'branch_manager', label: 'Branch Manager (Full Branch Access)' },
                 { value: 'sub_admin', label: 'Sub Admin (Custom Permission Matrix)' },
@@ -441,24 +513,24 @@ export const StaffRoles: React.FC = () => {
             />
           </div>
 
-          {/* Sub Admin Granular Permissions Matrix */}
-          {formRole === 'sub_admin' && (
+          {/* Granular Permissions Matrix */}
+          {(formRole === 'sub_admin' || formRole === 'billing_employee' || formRole === 'prescription_employee') && (
             <div className="p-4 bg-cream-50 rounded-lg border border-charcoal-200 space-y-2">
               <span className="text-xs font-bold text-charcoal-900 uppercase tracking-wider block">
-                Sub Admin Permissions Matrix
+                Employee Permissions Matrix
               </span>
               <p className="text-[11px] text-charcoal-500 mb-2">
-                Sub Admin receives only explicitly checked permissions.
+                Customize access to Regular Medicine Billing, Prescription Slip Billing, History, and Doctors.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
+                {PERMISSION_LABELS.map(({ key, label }) => (
                   <Checkbox
-                    key={permKey}
-                    label={permKey.replace(/_/g, ' ').toUpperCase()}
-                    checked={Boolean(formPermissions[permKey as keyof SubAdminPermissions])}
+                    key={key}
+                    label={label}
+                    checked={Boolean(formPermissions[key])}
                     onChange={(checked) => setFormPermissions({
                       ...formPermissions,
-                      [permKey]: checked,
+                      [key]: checked,
                     })}
                   />
                 ))}
@@ -490,18 +562,18 @@ export const StaffRoles: React.FC = () => {
           </p>
 
           <div className="space-y-2 text-xs p-3.5 bg-cream-50 rounded-lg border border-charcoal-200">
-            {Object.keys(DEFAULT_SUBADMIN_PERMISSIONS).map((permKey) => (
+            {PERMISSION_LABELS.map(({ key, label }) => (
               <Checkbox
-                key={permKey}
-                label={permKey.replace(/_/g, ' ').toUpperCase()}
-                checked={Boolean(permModalUser?.permissions?.[permKey as keyof SubAdminPermissions])}
+                key={key}
+                label={label}
+                checked={Boolean(permModalUser?.permissions?.[key])}
                 onChange={(checked) => {
                   if (!permModalUser) return;
                   setPermModalUser({
                     ...permModalUser,
                     permissions: {
                       ...permModalUser.permissions,
-                      [permKey]: checked,
+                      [key]: checked,
                     },
                   });
                 }}
@@ -547,8 +619,9 @@ export const StaffRoles: React.FC = () => {
               value={editRole}
               onChange={(e) => setEditRole(e.target.value as AppRole)}
             >
-              <option value="billing_employee">Billing Employee (POS Only)</option>
-              <option value="inventory_manager">Inventory & Purchases Manager</option>
+              <option value="billing_employee">Regular Billing Employee (Medicine POS)</option>
+              <option value="prescription_employee">Prescription / Slip Employee (OPD Slips)</option>
+              <option value="inventory_manager">Inventory &amp; Purchases Manager</option>
               <option value="branch_manager">Branch Manager</option>
               <option value="sub_admin">Sub Admin (Configurable Matrix)</option>
             </Select>

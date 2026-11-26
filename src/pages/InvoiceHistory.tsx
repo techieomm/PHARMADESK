@@ -212,7 +212,7 @@ export const InvoiceHistory: React.FC = () => {
       'Total Bill Amount (₹)': inv.total_amount,
       'Cancellation Reason': inv.cancelled_reason || '',
     }));
-    exportToExcel(exportData, 'PharmaDesk_Invoices', 'Invoices');
+    exportToExcel(exportData, 'BajrangPharmacy_Invoices', 'Invoices');
   };
 
   const handleExportPdf = () => {
@@ -226,10 +226,10 @@ export const InvoiceHistory: React.FC = () => {
       `₹${inv.total_amount.toFixed(2)}`,
     ]);
     exportToPdf(
-      'PharmaDesk - Sales Invoices Register',
+      'Bajrang Pharmacy - Sales Invoices Register',
       headers,
       rows,
-      'PharmaDesk_Invoice_Register'
+      'BajrangPharmacy_Invoice_Register'
     );
   };
 

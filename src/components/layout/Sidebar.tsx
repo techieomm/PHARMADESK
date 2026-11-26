@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { SubAdminPermissions } from '@/types';
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -22,7 +23,10 @@ import {
   BookOpen,
   Layers,
   X,
-  AlertCircle
+  AlertCircle,
+  Stethoscope,
+  ClipboardList,
+  UserCheck
 } from 'lucide-react';
 
 interface NavItem {
@@ -30,6 +34,7 @@ interface NavItem {
   path: string;
   icon: React.ReactNode;
   allowedRoles: string[];
+  requiredPermission?: keyof SubAdminPermissions;
   badge?: string;
   badgeVariant?: 'brand' | 'warning' | 'danger';
 }
@@ -48,11 +53,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile,
 }) => {
-  const { role } = useAuth();
+  const { role, hasPermission } = useAuth();
 
   const navSections: NavSection[] = [
     {
-      title: 'Counter & Billing',
+      title: 'Medicine Counter & Billing',
       items: [
         {
           name: 'Dashboard',
@@ -65,6 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           path: '/pos',
           icon: <ReceiptText className="w-4 h-4" />,
           allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+          requiredPermission: 'access_billing',
           badge: 'F1-F12',
         },
         {
@@ -72,18 +78,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           path: '/invoices',
           icon: <FileText className="w-4 h-4" />,
           allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+          requiredPermission: 'view_invoices',
         },
         {
           name: 'Sales Returns',
           path: '/returns',
           icon: <RotateCcw className="w-4 h-4" />,
           allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+          requiredPermission: 'access_billing',
         },
         {
           name: 'Customers & Udhaar',
           path: '/customers',
           icon: <Users className="w-4 h-4" />,
           allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'billing_employee'],
+          requiredPermission: 'access_billing',
+        },
+      ],
+    },
+    {
+      title: 'Prescription & Patient Slips',
+      items: [
+        {
+          name: 'Patient Slip Billing',
+          path: '/prescription-slips',
+          icon: <Stethoscope className="w-4 h-4 text-brand-600" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee'],
+          requiredPermission: 'access_prescription_billing',
+          badge: 'OPD',
+          badgeVariant: 'brand',
+        },
+        {
+          name: 'Slip History & Fees',
+          path: '/prescription-history',
+          icon: <ClipboardList className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee'],
+          requiredPermission: 'view_prescription_history',
+        },
+        {
+          name: 'Doctors Directory',
+          path: '/doctors',
+          icon: <UserCheck className="w-4 h-4" />,
+          allowedRoles: ['master_admin', 'sub_admin', 'branch_manager'],
+          requiredPermission: 'manage_doctors',
         },
       ],
     },
@@ -209,7 +246,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const visibleItems = sec.items.filter((item) => {
             if (!role) return false;
             if (role === 'master_admin') return true;
-            return item.allowedRoles.includes(role);
+            if (item.allowedRoles.includes(role)) return true;
+            if (item.requiredPermission && hasPermission(item.requiredPermission)) return true;
+            return false;
           });
 
           if (visibleItems.length === 0) return null;

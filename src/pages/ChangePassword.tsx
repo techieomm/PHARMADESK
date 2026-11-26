@@ -5,6 +5,7 @@ import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { supabase } from '@/lib/supabase';
 import { Lock, ShieldAlert, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
+import { BrandLogo } from '@/components/common/BrandLogo';
 
 export const ChangePassword: React.FC = () => {
   const navigate = useNavigate();
@@ -89,8 +90,8 @@ export const ChangePassword: React.FC = () => {
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         {/* Brand Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex w-12 h-12 rounded bg-charcoal-800 items-center justify-center text-brand-400 font-bold text-2xl tracking-wider border border-charcoal-700 mb-3 shadow-xs">
-            PD
+          <div className="flex justify-center mb-3">
+            <BrandLogo size="lg" />
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-charcoal-900 font-sans">
             Set Your New Password

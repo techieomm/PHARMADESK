@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { numberToIndianWords } from '@/core';
 import { Printer, Download, CheckCircle2, Share2, QrCode } from 'lucide-react';
 import { exportToPdf } from '@/utils/exporter';
+import { useBranding } from '@/context/BrandingContext';
 
 interface InvoicePrintModalProps {
   invoice: Invoice | null;
@@ -20,6 +21,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
 }) => {
   const [format, setFormat] = useState<PrintFormat>('thermal_80mm');
   const printAreaRef = useRef<HTMLDivElement>(null);
+  const { logoUrl } = useBranding();
 
   if (!invoice) return null;
 
@@ -150,6 +152,11 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({
           >
             {/* Business Header */}
             <div className="text-center pb-2 border-b border-dashed border-charcoal-400">
+              {logoUrl && (
+                <div className="flex justify-center mb-1.5">
+                  <img src={logoUrl} alt="Bajrang Pharmacy Logo" className="h-10 max-w-[120px] object-contain" />
+                </div>
+              )}
               <h2 className="font-bold text-base tracking-wide uppercase">
                 {invoice.branch?.name || 'BAJRANG PHARMACY'}
               </h2>

@@ -93,11 +93,13 @@
     visibility: hidden;
   }
   
-  #printable-invoice, #printable-invoice * {
+  #printable-invoice, #printable-invoice *,
+  #printable-prescription-slip, #printable-prescription-slip * {
     visibility: visible;
   }
   
-  #printable-invoice {
+  #printable-invoice,
+  #printable-prescription-slip {
     position: absolute;
     left: 0;
     top: 0;

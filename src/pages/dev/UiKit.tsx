@@ -55,7 +55,7 @@ export const UiKit: React.FC = () => {
   return (
     <div className="page-container space-y-8">
       <PageHeader
-        title="PharmaDesk Design Tokens & Shared Component Kit"
+        title="Bajrang Pharmacy Design Tokens & Shared Component Kit"
         subtitle="Live verification of uniform spacing, control heights (h-8 compact, h-10 standard, h-12 large), typography, and accessible interactive states."
         badge={<Badge variant="brand">UI Kit v2.0</Badge>}
         actions={

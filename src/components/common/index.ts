@@ -21,3 +21,4 @@ export * from './Toolbar';
 export * from './BarcodeScannerListener';
 export * from './BarcodeLabelPrinter';
 export * from './CameraScannerModal';
+export * from './BrandLogo';

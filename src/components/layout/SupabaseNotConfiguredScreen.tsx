@@ -27,7 +27,7 @@ export const SupabaseNotConfiguredScreen: React.FC = () => {
               Supabase Project Connection Missing
             </h1>
             <p className="text-xs sm:text-sm text-charcoal-300 mt-1 leading-relaxed">
-              PharmaDesk is running in live production mode. To prevent negative stock, protect financial ledgers, and maintain strict Indian GST audit compliance, <b>local storage fallback is strictly disabled</b>.
+              Bajrang Pharmacy is running in live production mode. To prevent negative stock, protect financial ledgers, and maintain strict Indian GST audit compliance, <b>local storage fallback is strictly disabled</b>.
             </p>
           </div>
         </div>
@@ -74,22 +74,22 @@ export const SupabaseNotConfiguredScreen: React.FC = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-charcoal-200">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-center justify-between gap-3 pt-4 border-t border-charcoal-200">
             <Button
               variant="primary"
               size="md"
               onClick={() => setIsModalOpen(true)}
               leftIcon={<Database className="w-4 h-4" />}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto whitespace-nowrap shrink-0"
             >
-              Open Supabase Migration & Setup Guide
+              Open Supabase Migration &amp; Setup Guide
             </Button>
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="flex items-center flex-wrap gap-2 w-full sm:w-auto justify-end shrink-0">
               <a
                 href="https://supabase.com/dashboard"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-charcoal-600 hover:text-charcoal-900 border border-charcoal-300 px-3 py-2 rounded-md hover:bg-cream-100 transition-colors"
+                className="inline-flex items-center gap-1.5 h-10 text-xs font-semibold text-charcoal-600 hover:text-charcoal-900 border border-charcoal-300 px-3 rounded-md hover:bg-cream-100 transition-colors whitespace-nowrap"
               >
                 <span>Supabase Dashboard</span>
                 <ExternalLink className="w-3.5 h-3.5 text-charcoal-400" />
@@ -99,6 +99,7 @@ export const SupabaseNotConfiguredScreen: React.FC = () => {
                 size="md"
                 onClick={() => window.location.reload()}
                 leftIcon={<RefreshCw className="w-4 h-4" />}
+                className="whitespace-nowrap"
               >
                 Retry Connection
               </Button>

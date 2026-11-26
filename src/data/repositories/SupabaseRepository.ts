@@ -176,19 +176,62 @@ export class SupabaseInventoryRepository implements IInventoryRepository {
   async getBranchInventory(branchId?: string): Promise<BranchInventory[]> {
     if (isDemoMode()) return localDb.getInventory(branchId);
 
-    let query = supabase.from('branch_inventory_view').select('*, medicine:medicine_master(*)');
+    // Aggregate directly from inventory_batches so inventory and POS always share the exact same source of truth
+    let query = supabase
+      .from('inventory_batches')
+      .select('*, medicine:medicine_master(*)')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .order('expiry_date', { ascending: true });
+
     if (branchId && branchId !== 'all') {
       query = query.eq('branch_id', branchId);
     }
 
     const { data, error } = await query;
     if (error) throw new Error(`Failed to load inventory: ${error.message}`);
-    return data as BranchInventory[];
+
+    const grouped = new Map<string, BranchInventory>();
+    for (const batch of (data || []) as InventoryBatch[]) {
+      const key = `${batch.branch_id}::${batch.medicine_id}`;
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          id: batch.id,
+          branch_id: batch.branch_id,
+          medicine_id: batch.medicine_id,
+          stock_pieces: Number(batch.stock_pieces) || 0,
+          rack_location: batch.rack_location,
+          batch_number: batch.batch_number,
+          expiry_date: batch.expiry_date,
+          updated_at: batch.updated_at,
+          medicine: batch.medicine,
+          batches: [batch],
+        });
+      } else {
+        existing.stock_pieces += Number(batch.stock_pieces) || 0;
+        existing.batches = [...(existing.batches || []), batch];
+        if (batch.updated_at > existing.updated_at) {
+          existing.updated_at = batch.updated_at;
+        }
+        const firstPositive = existing.batches.find((b) => Number(b.stock_pieces) > 0);
+        if (firstPositive) {
+          existing.batch_number = firstPositive.batch_number;
+          existing.expiry_date = firstPositive.expiry_date;
+        }
+      }
+    }
+
+    return Array.from(grouped.values());
   }
 
   async getInventoryBatches(branchId?: string, medicineId?: string): Promise<InventoryBatch[]> {
     if (isDemoMode()) {
       const inv = localDb.getInventory(branchId);
+      const fallbackDate = new Date();
+      fallbackDate.setFullYear(fallbackDate.getFullYear() + 2);
+      const defaultExpiry = fallbackDate.toISOString().split('T')[0];
+
       const batches: InventoryBatch[] = [];
       inv.forEach(i => {
         if (!medicineId || i.medicine_id === medicineId) {
@@ -197,7 +240,7 @@ export class SupabaseInventoryRepository implements IInventoryRepository {
             branch_id: i.branch_id,
             medicine_id: i.medicine_id,
             batch_number: i.batch_number || 'DEFAULT-01',
-            expiry_date: i.expiry_date || '2027-12-31',
+            expiry_date: i.expiry_date || defaultExpiry,
             stock_pieces: i.stock_pieces,
             mrp: i.medicine?.mrp || 0,
             purchase_rate: i.medicine?.purchase_cost,
@@ -213,7 +256,7 @@ export class SupabaseInventoryRepository implements IInventoryRepository {
       return batches;
     }
 
-    let q = supabase.from('inventory_batches').select('*, medicine:medicine_master(*)').is('deleted_at', null).order('expiry_date', { ascending: true });
+    let q = supabase.from('inventory_batches').select('*, medicine:medicine_master(*)').eq('is_active', true).is('deleted_at', null).order('expiry_date', { ascending: true });
     if (branchId && branchId !== 'all') q = q.eq('branch_id', branchId);
     if (medicineId) q = q.eq('medicine_id', medicineId);
 
@@ -364,7 +407,8 @@ export class SupabaseInvoiceRepository implements IInvoiceRepository {
         medicine_id: it.medicine.id,
         selected_unit: it.selected_unit,
         unit_quantity: it.unit_quantity,
-        batch_id: it.selectedBatch?.id || null,
+        // Use specific batch only when a single batch satisfies the entire requested quantity; otherwise allow FEFO multi-batch allocation
+        batch_id: it.selectedBatch && it.selectedBatch.stock_pieces >= it.required_pieces ? it.selectedBatch.id : null,
         discount_amount: it.discount_amount || 0,
       })),
       p_bill_discount: params.billDiscount || 0,

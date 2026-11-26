@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
 import { inventoryService, medicineService } from '@/services/api';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { BranchInventory as InventoryType, Medicine } from '@/types';
 import { 
   Card, 
@@ -16,7 +17,7 @@ import {
   Toolbar, 
   Skeleton 
 } from '@/components/common';
-import { formatCurrency, formatDualUnitStock } from '@/utils/formatters';
+import { formatCurrency, formatDualUnitStock, getStockStatus } from '@/utils/formatters';
 import { exportToExcel } from '@/utils/exporter';
 import { 
   Boxes, 
@@ -26,7 +27,8 @@ import {
   PackageCheck, 
   SlidersHorizontal,
   Building2,
-  Package
+  Package,
+  RefreshCw
 } from 'lucide-react';
 
 export const BranchInventory: React.FC = () => {
@@ -49,8 +51,13 @@ export const BranchInventory: React.FC = () => {
   const [adjustNotes, setAdjustNotes] = useState('');
   const [batchNum, setBatchNum] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
+  const [targetBranchId, setTargetBranchId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedBranchFilter(selectedBranchId);
+  }, [selectedBranchId]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -74,9 +81,29 @@ export const BranchInventory: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    if (!isSupabaseConfigured()) return;
+    const channel = supabase
+      .channel('realtime_branch_inventory_batches')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'inventory_batches' },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selectedBranchFilter, user]);
 
   const openAdjustModal = (med: Medicine, inv?: InventoryType) => {
+    const defaultBranch = selectedBranchFilter === 'all'
+      ? (user?.primary_branch_id || branches[0]?.id || '')
+      : selectedBranchFilter;
+    setTargetBranchId(defaultBranch);
     setSelectedItem({ medicine: med, inventory: inv });
     setAdjustType('add');
     setAdjustUnit('strip');
@@ -93,30 +120,30 @@ export const BranchInventory: React.FC = () => {
     if (!selectedItem) return;
     setErrorMsg(null);
 
-    const targetBranchId = selectedBranchFilter === 'all' 
-      ? (user?.primary_branch_id || branches[0]?.id || '') 
-      : selectedBranchFilter;
+    const resolvedBranchId = targetBranchId || (selectedBranchFilter === 'all'
+      ? (user?.primary_branch_id || branches[0]?.id || '')
+      : selectedBranchFilter);
 
-    if (!targetBranchId) {
+    if (!resolvedBranchId) {
       setErrorMsg('Please select a specific branch for stock entry');
       return;
     }
-    if (adjustQty <= 0) {
-      setErrorMsg('Quantity must be greater than zero');
+    if (adjustType === 'set' ? adjustQty < 0 : adjustQty <= 0) {
+      setErrorMsg(adjustType === 'set' ? 'Quantity cannot be negative' : 'Quantity must be greater than zero');
       return;
     }
 
     setIsSubmitting(true);
     try {
       await inventoryService.adjustStock({
-        branchId: targetBranchId,
+        branchId: resolvedBranchId,
         medicineId: selectedItem.medicine.id,
         adjustmentType: adjustType,
         unit: adjustUnit,
         quantity: adjustQty,
         notes: adjustNotes || `Stock ${adjustType} via Inventory Panel`,
         performedByUserId: user?.id,
-        batchNumber: batchNum || undefined,
+        batchNumber: batchNum.trim() || undefined,
         expiryDate: expiryDate || undefined,
       });
 
@@ -129,19 +156,19 @@ export const BranchInventory: React.FC = () => {
     }
   };
 
-  // Combine medicines with inventory
+  // Combine medicines with inventory (aggregating across branches when 'all' is selected)
   const combinedList = medicines.map(med => {
-    const inv = inventory.find(i => i.medicine_id === med.id);
-    const stockPieces = inv ? inv.stock_pieces : 0;
-    const isOut = stockPieces <= 0;
-    const isLow = !isOut && stockPieces <= (med.min_stock_alert || 20);
+    const medInvRows = inventory.filter(i => i.medicine_id === med.id);
+    const inv = medInvRows.find(i => (i.stock_pieces || 0) > 0) || medInvRows[0];
+    const stockPieces = medInvRows.reduce((sum, row) => sum + (Number(row.stock_pieces) || 0), 0);
+    const statusInfo = getStockStatus(stockPieces, med.min_stock_alert);
 
     return {
       medicine: med,
       inventory: inv,
       stockPieces,
-      isOut,
-      isLow,
+      isOut: statusInfo.isOutOfStock,
+      isLow: statusInfo.isLowStock,
       dual: formatDualUnitStock(stockPieces, med.pieces_per_strip),
     };
   });
@@ -193,6 +220,9 @@ export const BranchInventory: React.FC = () => {
         subtitle="Independent stock tracking per branch using dual-unit strips and loose pieces."
         actions={
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="md" onClick={loadData} leftIcon={<RefreshCw className="w-4 h-4" />}>
+              Refresh
+            </Button>
             <Button variant="outline" size="md" onClick={handleExportExcel} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
               Export Excel
             </Button>
@@ -407,11 +437,20 @@ export const BranchInventory: React.FC = () => {
             />
           </div>
 
+          {user?.role === 'master_admin' && branches.length > 0 && (
+            <Select
+              label="Target Branch *"
+              value={targetBranchId}
+              onChange={(e) => setTargetBranchId(e.target.value)}
+              options={branches.map(b => ({ value: b.id, label: `${b.name} (${b.branch_code})` }))}
+            />
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Quantity to Enter *"
               type="number"
-              min="1"
+              min={adjustType === 'set' ? '0' : '1'}
               value={adjustQty}
               onChange={(e) => setAdjustQty(parseFloat(e.target.value) || 0)}
               required

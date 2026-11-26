@@ -11,13 +11,18 @@ import { Switch } from '@/components/common/Switch';
 import { Modal } from '@/components/common/Modal';
 import { validateGstin } from '@/core';
 import { useBarcodeScanner } from '@/context/BarcodeScannerContext';
+import { useBranding } from '@/context/BrandingContext';
+import { BrandLogo } from '@/components/common/BrandLogo';
 import {
   Settings as SettingsIcon,
   Check,
   Save,
   Plus,
   Monitor,
-  Trash2
+  Trash2,
+  Upload,
+  Image as ImageIcon,
+  X
 } from 'lucide-react';
 
 export const Settings: React.FC = () => {
@@ -27,6 +32,50 @@ export const Settings: React.FC = () => {
     interKeyThresholdMs,
     setInterKeyThresholdMs
   } = useBarcodeScanner();
+
+  const { logoUrl, updateLogo, isSavingLogo } = useBranding();
+  const [logoStatus, setLogoStatus] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoStatus(null);
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setLogoStatus({ text: 'Please upload a PNG, JPG, SVG, or WebP image file.', isError: true });
+      return;
+    }
+
+    if (file.size > 512 * 1024) {
+      setLogoStatus({ text: 'Logo file size must be 512 KB or smaller.', isError: true });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const result = typeof reader.result === 'string' ? reader.result : null;
+        if (!result) throw new Error('Failed to read image file');
+        await updateLogo(result);
+        setLogoStatus({ text: 'Bajrang Pharmacy logo updated and saved.' });
+      } catch (err: any) {
+        setLogoStatus({ text: err?.message || 'Failed to save logo', isError: true });
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveLogo = async () => {
+    setLogoStatus(null);
+    try {
+      await updateLogo(null);
+      setLogoStatus({ text: 'Custom logo removed. Using default BP monogram.' });
+    } catch (err: any) {
+      setLogoStatus({ text: err?.message || 'Failed to remove logo', isError: true });
+    }
+  };
 
   // ==========================================
   // DEVELOPER-CONTROLLED BUSINESS CONFIGURATION
@@ -193,6 +242,68 @@ export const Settings: React.FC = () => {
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
+
+        {/* =====================================
+            ADMIN LOGO UPLOAD & BRANDING
+        ====================================== */}
+
+        <Card title="Bajrang Pharmacy Logo & Branding">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <BrandLogo size="lg" />
+              <div>
+                <h4 className="text-sm font-bold text-charcoal-900">
+                  Official Pharmacy Logo
+                </h4>
+                <p className="text-xs text-charcoal-500 mt-0.5 max-w-md">
+                  Upload Bajrang Pharmacy&apos;s official logo (PNG, JPG, SVG, or WebP, max 512 KB). It appears across the login portal, navigation header, tax invoices, and patient consultation slips.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center justify-center font-medium transition-colors bg-charcoal-900 text-white hover:bg-charcoal-800 rounded-md text-xs px-3.5 h-9 gap-1.5 shadow-xs">
+                  <Upload className="w-3.5 h-3.5" />
+                  {isSavingLogo ? 'Saving...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                  disabled={isSavingLogo}
+                />
+              </label>
+
+              {logoUrl && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<X className="w-3.5 h-3.5 text-rose-600" />}
+                  onClick={handleRemoveLogo}
+                  disabled={isSavingLogo}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {logoStatus && (
+            <div
+              className={`mt-3 p-2.5 rounded text-xs font-medium flex items-center gap-2 ${
+                logoStatus.isError
+                  ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4 shrink-0" />
+              <span>{logoStatus.text}</span>
+            </div>
+          )}
+        </Card>
 
         {/* =====================================
             LOCKED BUSINESS IDENTITY

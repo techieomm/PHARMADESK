@@ -3,7 +3,8 @@ export type AppRole =
   | 'sub_admin'
   | 'branch_manager'
   | 'inventory_manager'
-  | 'billing_employee';
+  | 'billing_employee'
+  | 'prescription_employee';
 
 export type DrugSchedule = 
   | 'otc'
@@ -84,6 +85,9 @@ export interface SubAdminPermissions {
   manage_inventory: boolean;
   view_invoices: boolean;
   access_billing: boolean;
+  access_prescription_billing?: boolean;
+  view_prescription_history?: boolean;
+  manage_doctors?: boolean;
   view_branch_reports: boolean;
   manage_permitted_employees: boolean;
   must_change_password?: boolean;
@@ -442,6 +446,8 @@ export interface Doctor {
   business_id?: string;
   full_name: string;
   registration_number: string;
+  specialization?: string;
+  default_consultation_fee?: number;
   clinic_hospital_name?: string;
   phone?: string;
   qualification?: string;
@@ -449,6 +455,58 @@ export interface Doctor {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface SlipSequencePreview {
+  serial_seq: number;
+  serial_number: string;
+  prescription_seq: number;
+  prescription_number: string;
+}
+
+export interface PrescriptionSlip {
+  id: string;
+  business_id?: string;
+  branch_id: string;
+  serial_seq: number;
+  serial_number: string;
+  prescription_seq: number;
+  prescription_number: string;
+  patient_name: string;
+  patient_phone?: string;
+  patient_age?: number;
+  patient_gender?: string;
+  patient_address?: string;
+  doctor_id: string;
+  doctor_name: string;
+  doctor_qualification?: string;
+  doctor_registration_number?: string;
+  consultation_fee: number;
+  payment_method: 'cash' | 'upi' | 'card';
+  payment_status: 'paid' | 'cancelled';
+  notes?: string;
+  slip_date: string;
+  created_by?: string;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+  branch?: Branch;
+  doctor?: Doctor;
+  creator?: Profile;
+}
+
+export interface ConsultationFeeRecord {
+  id: string;
+  business_id?: string;
+  branch_id: string;
+  prescription_slip_id: string;
+  doctor_id: string;
+  employee_id?: string;
+  fee_amount: number;
+  payment_method: 'cash' | 'upi' | 'card';
+  status: 'collected' | 'cancelled';
+  collected_at: string;
+  created_at: string;
 }
 
 export interface H1RegisterEntry {

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/BranchContext';
-import { billingService, inventoryService, medicineService, employeeService } from '@/services/api';
-import { Invoice, Medicine, BranchInventory, Profile } from '@/types';
+import { billingService, inventoryService, medicineService, employeeService, prescriptionSlipService } from '@/services/api';
+import { Invoice, Medicine, BranchInventory, Profile, PrescriptionSlip } from '@/types';
 import { Card, StatCard, Button, Badge, PageHeader, Tabs, Skeleton } from '@/components/common';
 import { exportToExcel, exportToPdf } from '@/utils/exporter';
 import { formatCurrency, formatDate } from '@/utils/formatters';
@@ -25,6 +25,7 @@ export const Reports: React.FC = () => {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [inventory, setInventory] = useState<BranchInventory[]>([]);
   const [employees, setEmployees] = useState<Profile[]>([]);
+  const [slips, setSlips] = useState<PrescriptionSlip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [activeTab, setActiveTab] = useState('sales');
@@ -37,17 +38,19 @@ export const Reports: React.FC = () => {
           ? (selectedBranchId === 'all' ? undefined : selectedBranchId)
           : (user?.primary_branch_id || undefined);
 
-        const [invData, medData, stockData, empData] = await Promise.all([
+        const [invData, medData, stockData, empData, slipData] = await Promise.all([
           billingService.getInvoices(branchParam),
           medicineService.getMedicines(),
           inventoryService.getBranchInventory(branchParam),
           employeeService.getEmployees(),
+          prescriptionSlipService.getSlips(branchParam),
         ]);
 
         setInvoices(invData);
         setMedicines(medData);
         setInventory(stockData);
         setEmployees(empData);
+        setSlips(slipData);
       } catch (e) {
         console.error(e);
       } finally {
@@ -182,11 +185,46 @@ export const Reports: React.FC = () => {
     }
   };
 
+  // Tab 5: Consultation Slips & Fees Report
+  const exportConsultationReport = (format: 'excel' | 'pdf') => {
+    if (format === 'excel') {
+      const data = slips.map((s) => ({
+        'Serial No.': s.serial_number,
+        'Prescription No.': s.prescription_number,
+        'Date': formatDate(s.slip_date),
+        'Patient Name': s.patient_name,
+        'Doctor': s.doctor_name,
+        'Payment Mode': s.payment_method.toUpperCase(),
+        'Consultation Fee (₹)': s.consultation_fee,
+        'Issued By': s.created_by_name || '',
+      }));
+      exportToExcel(data, 'BajrangPharmacy_Consultation_Fees_Report', 'Consultation_Fees');
+    } else {
+      const headers = ['Serial #', 'Rx #', 'Date', 'Patient', 'Doctor', 'Mode', 'Fee (₹)'];
+      const rows = slips.map((s) => [
+        s.serial_number,
+        s.prescription_number,
+        formatDate(s.slip_date, false),
+        s.patient_name,
+        s.doctor_name,
+        s.payment_method.toUpperCase(),
+        `₹${s.consultation_fee.toFixed(2)}`,
+      ]);
+      exportToPdf(
+        'Bajrang Pharmacy - Consultation Slips & Fees Report',
+        headers,
+        rows,
+        'BajrangPharmacy_Consultation_Fees_Report'
+      );
+    }
+  };
+
   const reportTabs = [
     { id: 'sales', label: 'Overall Sales Report' },
     { id: 'branch', label: 'Branch Performance' },
     { id: 'medicines', label: 'Medicine Volume' },
     { id: 'inventory', label: 'Inventory Stock Report' },
+    { id: 'consultations', label: 'Consultation Slips & Fees' },
   ];
 
   return (
@@ -296,6 +334,28 @@ export const Reports: React.FC = () => {
             </div>
           </div>
           <p className="text-xs text-charcoal-600">Inventory items tracked: <b>{inventory.length}</b></p>
+        </Card>
+      )}
+
+      {activeTab === 'consultations' && (
+        <Card className="bg-white space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-charcoal-100">
+            <div>
+              <h3 className="font-bold text-sm text-charcoal-900">Prescription Slips &amp; Consultation Fee Register</h3>
+              <p className="text-xs text-charcoal-500">All patient consultation slips and collected doctor fees (kept separate from medicine sales).</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => exportConsultationReport('excel')} leftIcon={<FileSpreadsheet className="w-4 h-4 text-emerald-700" />}>
+                Export Excel
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => exportConsultationReport('pdf')} leftIcon={<Download className="w-4 h-4" />}>
+                Export PDF
+              </Button>
+            </div>
+          </div>
+          <div className="text-xs text-charcoal-600">
+            Total consultation slips: <b>{slips.length} slips</b> (Total Fees Collected: <b className="font-mono">{formatCurrency(slips.reduce((sum, s) => sum + (Number(s.consultation_fee) || 0), 0))}</b>).
+          </div>
         </Card>
       )}
     </div>

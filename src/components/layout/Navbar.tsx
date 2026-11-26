@@ -4,6 +4,7 @@ import { useBranch } from '@/context/BranchContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { SupabaseSetupModal } from './SupabaseSetupModal';
 import { Badge } from '@/components/common/Badge';
+import { BrandLogo } from '@/components/common/BrandLogo';
 import { 
   Building2, 
   LogOut, 
@@ -47,6 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
       case 'branch_manager': return 'Branch Manager';
       case 'inventory_manager': return 'Inventory Manager';
       case 'billing_employee': return 'Billing Staff';
+      case 'prescription_employee': return 'Prescription Slip Staff';
       default: return 'Staff';
     }
   };
@@ -67,19 +69,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
         )}
 
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-md bg-charcoal-900 flex items-center justify-center text-brand-500 font-bold text-lg tracking-wider border border-charcoal-800 shadow-xs">
-            PD
-          </div>
+          <BrandLogo size="md" />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-charcoal-900 text-base tracking-tight font-sans">
-                PHARMA<span className="text-brand-500">DESK</span>
-              </span>
-              <span className="hidden sm:inline-block text-[10px] px-1.5 py-0.5 rounded bg-cream-100 text-charcoal-700 border border-charcoal-200 font-semibold tracking-wider uppercase">
-                Pro
+                BAJRANG <span className="text-brand-500">PHARMACY</span>
               </span>
             </div>
-            <p className="hidden sm:block text-[11px] text-charcoal-500 -mt-0.5">Pharmacy Management System</p>
+            <p className="hidden sm:block text-[11px] text-charcoal-500 -mt-0.5">Pharmacy Management & Billing</p>
           </div>
         </div>
 
@@ -165,7 +162,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
           type="button"
           onClick={logout}
           className="p-2 text-charcoal-600 hover:text-rose-700 hover:bg-rose-50 rounded-md border border-transparent hover:border-rose-200 transition-colors ml-1"
-          title="Sign out of PharmaDesk"
+          title="Sign out of Bajrang Pharmacy"
           aria-label="Sign out"
         >
           <LogOut className="w-4 h-4" />
