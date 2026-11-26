@@ -85,11 +85,8 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-cream-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-brand-200">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="flex justify-center mb-3">
-          <BrandLogo size="lg" />
+          <BrandLogo variant="full" size="lg" />
         </div>
-        <h2 className="text-2xl font-bold tracking-tight text-charcoal-900 font-sans">
-          BAJRANG <span className="text-brand-500">PHARMACY</span>
-        </h2>
         <p className="mt-1 text-xs text-charcoal-500 font-medium tracking-wide uppercase">
           Authorized Pharmacy Portal & Billing Login
         </p>

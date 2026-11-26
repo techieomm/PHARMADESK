@@ -3,10 +3,14 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const LOGO_STORAGE_KEY = 'bajrang_pharmacy_logo';
 const PHARMACY_NAME = 'Bajrang Pharmacy';
+export const DEFAULT_LOGO_URL = '/bajrang-logo.png';
+export const DEFAULT_ICON_URL = '/bajrang-icon.png';
 
 interface BrandingContextType {
   pharmacyName: string;
-  logoUrl: string | null;
+  logoUrl: string;
+  iconUrl: string;
+  isCustomLogo: boolean;
   isSavingLogo: boolean;
   updateLogo: (logoDataUrl: string | null) => Promise<void>;
   refreshBranding: () => Promise<void>;
@@ -15,7 +19,7 @@ interface BrandingContextType {
 const BrandingContext = createContext<BrandingContextType | undefined>(undefined);
 
 export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [logoUrl, setLogoUrl] = useState<string | null>(() => {
+  const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(() => {
     try {
       if (typeof localStorage !== 'undefined') {
         return localStorage.getItem(LOGO_STORAGE_KEY);
@@ -31,13 +35,12 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!isSupabaseConfigured()) return;
 
     try {
-      // Prefer public RPC so Login page can also display admin-uploaded logo
       const { data: rpcData, error: rpcErr } = await supabase.rpc('get_public_branding');
       if (!rpcErr && rpcData) {
         const remoteLogo = typeof rpcData.logo_data_url === 'string' && rpcData.logo_data_url.trim()
           ? rpcData.logo_data_url
           : null;
-        setLogoUrl(remoteLogo);
+        setCustomLogoUrl(remoteLogo);
         if (typeof localStorage !== 'undefined') {
           if (remoteLogo) {
             localStorage.setItem(LOGO_STORAGE_KEY, remoteLogo);
@@ -48,7 +51,6 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return;
       }
 
-      // Fallback to authenticated business_settings query
       const { data: settingData } = await supabase
         .from('business_settings')
         .select('setting_value')
@@ -60,7 +62,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const remoteLogo = typeof val.logo_data_url === 'string' && val.logo_data_url.trim()
           ? val.logo_data_url
           : null;
-        setLogoUrl(remoteLogo);
+        setCustomLogoUrl(remoteLogo);
         if (typeof localStorage !== 'undefined') {
           if (remoteLogo) {
             localStorage.setItem(LOGO_STORAGE_KEY, remoteLogo);
@@ -70,7 +72,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       }
     } catch {
-      // Non-fatal: keep cached localStorage logo
+      // Non-fatal: keep cached/default logo
     }
   };
 
@@ -88,7 +90,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           localStorage.removeItem(LOGO_STORAGE_KEY);
         }
       }
-      setLogoUrl(logoDataUrl);
+      setCustomLogoUrl(logoDataUrl);
 
       if (isSupabaseConfigured()) {
         const payload = {
@@ -128,12 +130,14 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const value = useMemo(
     () => ({
       pharmacyName: PHARMACY_NAME,
-      logoUrl,
+      logoUrl: customLogoUrl || DEFAULT_LOGO_URL,
+      iconUrl: customLogoUrl || DEFAULT_ICON_URL,
+      isCustomLogo: Boolean(customLogoUrl),
       isSavingLogo,
       updateLogo,
       refreshBranding,
     }),
-    [logoUrl, isSavingLogo]
+    [customLogoUrl, isSavingLogo]
   );
 
   return <BrandingContext.Provider value={value}>{children}</BrandingContext.Provider>;
@@ -144,7 +148,9 @@ export const useBranding = (): BrandingContextType => {
   if (!ctx) {
     return {
       pharmacyName: PHARMACY_NAME,
-      logoUrl: null,
+      logoUrl: DEFAULT_LOGO_URL,
+      iconUrl: DEFAULT_ICON_URL,
+      isCustomLogo: false,
       isSavingLogo: false,
       updateLogo: async () => {},
       refreshBranding: async () => {},

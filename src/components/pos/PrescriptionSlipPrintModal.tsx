@@ -124,7 +124,7 @@ export const PrescriptionSlipPrintModal: React.FC<PrescriptionSlipPrintModalProp
             <div className="text-center pb-2 border-b border-dashed border-charcoal-400">
               {logoUrl && (
                 <div className="flex justify-center mb-1.5">
-                  <img src={logoUrl} alt="Bajrang Pharmacy Logo" className="h-10 max-w-[120px] object-contain" />
+                  <img src={logoUrl} alt="Bajrang Pharmacy Logo" className="h-10 max-w-[180px] object-contain" />
                 </div>
               )}
               <h2 className="font-bold text-base tracking-wide uppercase">

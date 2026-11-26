@@ -33,7 +33,7 @@ export const Settings: React.FC = () => {
     setInterKeyThresholdMs
   } = useBarcodeScanner();
 
-  const { logoUrl, updateLogo, isSavingLogo } = useBranding();
+  const { logoUrl, isCustomLogo, updateLogo, isSavingLogo } = useBranding();
   const [logoStatus, setLogoStatus] = useState<{ text: string; isError?: boolean } | null>(null);
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,7 +71,7 @@ export const Settings: React.FC = () => {
     setLogoStatus(null);
     try {
       await updateLogo(null);
-      setLogoStatus({ text: 'Custom logo removed. Using default BP monogram.' });
+      setLogoStatus({ text: 'Custom logo removed. Restored default Bajrang Pharma logo.' });
     } catch (err: any) {
       setLogoStatus({ text: err?.message || 'Failed to remove logo', isError: true });
     }
@@ -250,13 +250,13 @@ export const Settings: React.FC = () => {
         <Card title="Bajrang Pharmacy Logo & Branding">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <BrandLogo size="lg" />
+              <BrandLogo variant="full" size="md" className="bg-white p-1.5 rounded border border-charcoal-200" />
               <div>
                 <h4 className="text-sm font-bold text-charcoal-900">
                   Official Pharmacy Logo
                 </h4>
                 <p className="text-xs text-charcoal-500 mt-0.5 max-w-md">
-                  Upload Bajrang Pharmacy&apos;s official logo (PNG, JPG, SVG, or WebP, max 512 KB). It appears across the login portal, navigation header, tax invoices, and patient consultation slips.
+                  Upload a replacement logo (PNG, JPG, SVG, or WebP, max 512 KB) or keep the built-in Bajrang Pharma logo. It appears across the login portal, navigation header, tax invoices, and patient consultation slips.
                 </p>
               </div>
             </div>
@@ -265,7 +265,7 @@ export const Settings: React.FC = () => {
               <label className="cursor-pointer">
                 <span className="inline-flex items-center justify-center font-medium transition-colors bg-charcoal-900 text-white hover:bg-charcoal-800 rounded-md text-xs px-3.5 h-9 gap-1.5 shadow-xs">
                   <Upload className="w-3.5 h-3.5" />
-                  {isSavingLogo ? 'Saving...' : logoUrl ? 'Replace Logo' : 'Upload Logo'}
+                  {isSavingLogo ? 'Saving...' : isCustomLogo ? 'Replace Logo' : 'Upload Custom Logo'}
                 </span>
                 <input
                   type="file"
@@ -276,7 +276,7 @@ export const Settings: React.FC = () => {
                 />
               </label>
 
-              {logoUrl && (
+              {isCustomLogo && (
                 <Button
                   type="button"
                   variant="outline"
@@ -285,7 +285,7 @@ export const Settings: React.FC = () => {
                   onClick={handleRemoveLogo}
                   disabled={isSavingLogo}
                 >
-                  Remove
+                  Reset Default
                 </Button>
               )}
             </div>

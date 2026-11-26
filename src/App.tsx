@@ -52,7 +52,7 @@ const ProtectedRoute: React.FC<{
     return (
       <div className="min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <BrandLogo size="lg" className="animate-pulse" />
+          <BrandLogo variant="icon" size="lg" className="animate-pulse" />
           <span className="text-xs font-semibold text-charcoal-600">Loading Bajrang Pharmacy...</span>
         </div>
       </div>
@@ -91,7 +91,7 @@ const ChangePasswordRoute: React.FC = () => {
     return (
       <div className="min-h-screen bg-cream-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <BrandLogo size="lg" className="animate-pulse" />
+          <BrandLogo variant="icon" size="lg" className="animate-pulse" />
           <span className="text-xs font-semibold text-charcoal-600">Loading Bajrang Pharmacy...</span>
         </div>
       </div>

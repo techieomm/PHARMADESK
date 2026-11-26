@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, AlertTriangle, ShieldCheck, Key, RefreshCw, FileCode, ExternalLink } from 'lucide-react';
+import { Database, ShieldCheck, Key, RefreshCw, FileCode, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/common/Button';
 import { SupabaseSetupModal } from '@/components/layout/SupabaseSetupModal';
 
@@ -11,8 +11,8 @@ export const SupabaseNotConfiguredScreen: React.FC = () => {
       <div className="w-full max-w-2xl bg-white border border-charcoal-200 rounded-xl shadow-md overflow-hidden">
         {/* Header Banner */}
         <div className="bg-charcoal-900 text-white p-6 sm:p-8 flex items-start gap-4 border-b border-charcoal-800">
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 shrink-0">
-            <AlertTriangle className="w-8 h-8" />
+          <div className="p-2 rounded-lg bg-white border border-charcoal-700 shrink-0">
+            <img src="/bajrang-icon.png" alt="Bajrang Pharmacy" className="w-9 h-9 object-contain" />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">

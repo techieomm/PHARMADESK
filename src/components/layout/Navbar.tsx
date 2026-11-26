@@ -69,15 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
         )}
 
         <div className="flex items-center gap-2.5">
-          <BrandLogo size="md" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-charcoal-900 text-base tracking-tight font-sans">
-                BAJRANG <span className="text-brand-500">PHARMACY</span>
-              </span>
-            </div>
-            <p className="hidden sm:block text-[11px] text-charcoal-500 -mt-0.5">Pharmacy Management & Billing</p>
-          </div>
+          <BrandLogo variant="full" size="md" />
         </div>
 
         {/* Branch Selector for Master Admin / Indicator for Branch Users */}
