@@ -14,7 +14,8 @@ import {
   Doctor,
   PrescriptionSlip,
   ConsultationFeeRecord,
-  SlipSequencePreview
+  SlipSequencePreview,
+  EmployeeType
 } from '@/types';
 
 /**
@@ -303,29 +304,42 @@ export const employeeService = {
   async createEmployee(params: {
     fullName: string;
     employeeId: string;
-    email: string;
+    email?: string;
     phone?: string;
     role: Profile['role'];
-    branchId: string;
+    employeeType?: EmployeeType;
+    branchId?: string | null;
     initialPassword: string;
     permissions?: Profile['permissions'];
   }): Promise<Profile> {
-    if (isSupabaseConfigured()) {
-      const cleanEmpId = params.employeeId.trim().toLowerCase();
-      const cleanEmail = params.email.trim().toLowerCase();
+    const cleanEmpId = params.employeeId.trim().toLowerCase();
+    const rawEmail = (params.email || '').trim().toLowerCase();
+    const cleanEmail = rawEmail || `${cleanEmpId.replace(/[^a-z0-9._-]/g, '')}@staff.bajrangpharmacy.local`;
 
-      // 1. Primary: Use atomic SECURITY DEFINER admin RPC
-      // This provisions auth.users with confirmed email and sets up public.profiles
-      // without displacing the active Master Admin session in the browser.
+    if (!params.fullName.trim()) {
+      throw new Error('Employee full name is required.');
+    }
+    if (!cleanEmpId) {
+      throw new Error('Login ID (Employee ID) is required.');
+    }
+    if (/\s/.test(cleanEmpId)) {
+      throw new Error('Login ID cannot contain spaces.');
+    }
+    if (!params.initialPassword || params.initialPassword.length < 6) {
+      throw new Error('Password must be at least 6 characters.');
+    }
+
+    if (isSupabaseConfigured()) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('admin_create_employee', {
         p_full_name: params.fullName.trim(),
         p_employee_id: cleanEmpId,
         p_email: cleanEmail,
         p_password: params.initialPassword,
         p_role: params.role,
-        p_branch_id: params.branchId,
+        p_branch_id: params.branchId && params.branchId.trim() ? params.branchId.trim() : null,
         p_phone: params.phone?.trim() || null,
         p_permissions: params.permissions || {},
+        p_employee_type: params.employeeType || null,
       });
 
       if (!rpcErr && rpcData) {
@@ -338,13 +352,11 @@ export const employeeService = {
         return (fullProfile || rpcData) as Profile;
       }
 
-      // Never fall back to client-side signUp: it would replace the Master Admin
-      // session in this browser and create a half-working account.
       if (rpcErr) {
         const msg = rpcErr.message || '';
         if (msg.includes('Could not find') || msg.includes('schema cache')) {
           throw new Error(
-            'Staff creation is not set up in the database yet. Run supabase/migrations/017_fix_staff_login_identities.sql in the Supabase SQL Editor.'
+            'Sub-Admin creation RPC is outdated in Supabase. Run supabase/migrations/022_fix_subadmin_and_employee_types.sql in the Supabase SQL Editor.'
           );
         }
         throw new Error(msg);
@@ -353,12 +365,13 @@ export const employeeService = {
     } else {
       assertLiveDatabase();
       return localDb.createProfile({
-        full_name: params.fullName,
-        employee_id: params.employeeId,
-        email: params.email,
-        phone: params.phone,
+        full_name: params.fullName.trim(),
+        employee_id: cleanEmpId,
+        email: cleanEmail,
+        phone: params.phone?.trim() || undefined,
         role: params.role,
-        primary_branch_id: params.branchId,
+        employee_type: params.employeeType,
+        primary_branch_id: params.branchId || undefined,
         is_active: true,
         permissions: params.permissions,
       });
@@ -382,10 +395,19 @@ export const employeeService = {
   },
 
   async updateEmployee(id: string, updates: Partial<Profile>): Promise<Profile> {
+    const sanitized: Record<string, any> = { ...updates };
+    if ('primary_branch_id' in sanitized && !sanitized.primary_branch_id) {
+      sanitized.primary_branch_id = null;
+    }
+    if ('phone' in sanitized && !sanitized.phone) {
+      sanitized.phone = null;
+    }
+    delete sanitized.branch;
+
     if (isSupabaseConfigured()) {
       const { data, error } = await supabase
         .from('profiles')
-        .update(updates)
+        .update(sanitized)
         .eq('id', id)
         .select('*, branch:branches(*)')
         .single();
@@ -393,7 +415,40 @@ export const employeeService = {
       return data as Profile;
     } else {
       assertLiveDatabase();
-      return localDb.updateProfile(id, updates);
+      return localDb.updateProfile(id, sanitized as Partial<Profile>);
+    }
+  },
+
+  async getEmployeeActivity(profileId: string): Promise<{
+    invoices: Invoice[];
+    slips: PrescriptionSlip[];
+  }> {
+    if (isSupabaseConfigured()) {
+      const [invRes, slipRes] = await Promise.all([
+        supabase
+          .from('invoices')
+          .select('*, branch:branches(*)')
+          .eq('created_by', profileId)
+          .order('invoice_date', { ascending: false })
+          .limit(50),
+        supabase
+          .from('prescription_slips')
+          .select('*, branch:branches(*), doctor:doctors(*)')
+          .eq('created_by', profileId)
+          .order('slip_date', { ascending: false })
+          .limit(50),
+      ]);
+
+      return {
+        invoices: (invRes.data || []) as Invoice[],
+        slips: (slipRes.data || []) as PrescriptionSlip[],
+      };
+    } else {
+      assertLiveDatabase();
+      return {
+        invoices: localDb.getInvoices().filter((i) => i.created_by === profileId),
+        slips: localDb.getPrescriptionSlips().filter((s) => s.created_by === profileId),
+      };
     }
   },
 

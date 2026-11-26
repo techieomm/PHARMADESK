@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, getHomeRouteForUser } from '@/context/AuthContext';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { supabase } from '@/lib/supabase';
@@ -68,8 +68,8 @@ export const ChangePassword: React.FC = () => {
       // 3. Refresh user state in AuthContext so must_change_password is cleared
       await refreshUser();
 
-      // 4. Redirect to dashboard
-      navigate('/', { replace: true });
+      // 4. Redirect to role-specific dashboard
+      navigate(getHomeRouteForUser(user), { replace: true });
     } catch (err: any) {
       setError(err?.message || 'Password update failed. Please try again.');
     } finally {

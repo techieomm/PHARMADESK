@@ -1,10 +1,37 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { Profile, AppRole, SubAdminPermissions } from '@/types';
+import { Profile, AppRole, EmployeeType, SubAdminPermissions } from '@/types';
 import { authService } from '@/services/api';
+
+export function resolveEmployeeType(user: Profile | null | undefined): EmployeeType | null {
+  if (!user) return null;
+  if (user.employee_type) return user.employee_type;
+  if (user.role === 'master_admin' || user.role === 'branch_manager' || user.role === 'inventory_manager') {
+    return 'admin';
+  }
+  if (user.role === 'prescription_employee') return 'parchi_billing';
+  if (user.role === 'sub_admin') {
+    if (user.permissions?.access_prescription_billing && !user.permissions?.access_billing) {
+      return 'parchi_billing';
+    }
+    return 'medicine_billing';
+  }
+  return 'medicine_billing';
+}
+
+export function getHomeRouteForUser(user: Profile | null | undefined): string {
+  if (!user) return '/login';
+  if (user.role === 'master_admin' || user.role === 'branch_manager') return '/';
+  if (user.role === 'inventory_manager') return '/inventory';
+  const empType = resolveEmployeeType(user);
+  if (empType === 'parchi_billing') return '/prescription-slips';
+  if (empType === 'medicine_billing') return '/pos';
+  return '/';
+}
 
 interface AuthContextType {
   user: Profile | null;
   role: AppRole | null;
+  employeeType: EmployeeType | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   loginWithEmployeeId: (employeeId: string, pass: string) => Promise<Profile>;
@@ -68,8 +95,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const employeeType = useMemo(() => resolveEmployeeType(user), [user]);
+
   const hasPermission = (key: keyof SubAdminPermissions): boolean => {
-    if (!user) return false;
+    if (!user || !user.is_active) return false;
     if (user.role === 'master_admin') return true;
 
     // Explicit permission override if set on user profile
@@ -92,11 +121,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user.role === 'inventory_manager') {
       return ['manage_medicines', 'manage_inventory'].includes(key);
     }
-    if (user.role === 'billing_employee') {
-      return ['access_billing', 'view_invoices'].includes(key);
-    }
-    if (user.role === 'prescription_employee') {
+    if (employeeType === 'parchi_billing' || user.role === 'prescription_employee') {
       return ['access_prescription_billing', 'view_prescription_history'].includes(key);
+    }
+    if (employeeType === 'medicine_billing' || user.role === 'billing_employee') {
+      return ['access_billing', 'view_invoices'].includes(key);
     }
     if (user.role === 'sub_admin') {
       return Boolean(user.permissions && user.permissions[key]);
@@ -107,6 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo(() => ({
     user,
     role: user?.role || null,
+    employeeType,
     isLoading,
     isAuthenticated: Boolean(user),
     loginWithEmployeeId,
@@ -114,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     hasPermission,
     refreshUser,
-  }), [user, isLoading]);
+  }), [user, employeeType, isLoading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

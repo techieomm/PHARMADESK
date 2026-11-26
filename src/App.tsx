@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { AuthProvider, useAuth, getHomeRouteForUser } from '@/context/AuthContext';
 import { BranchProvider } from '@/context/BranchContext';
 import { BarcodeScannerProvider } from '@/context/BarcodeScannerContext';
 import { BrandingProvider } from '@/context/BrandingContext';
@@ -69,19 +69,31 @@ const ProtectedRoute: React.FC<{
     return <Navigate to="/change-password" replace />;
   }
 
-  const isRoleAllowed = !allowedRoles || allowedRoles.includes(user.role);
-  const isPermAllowed = requiredPermission ? hasPermission(requiredPermission) : false;
+  const isAuthorized = useMemoCheck(user, allowedRoles, requiredPermission, hasPermission);
 
-  if ((allowedRoles || requiredPermission) && !isRoleAllowed && !isPermAllowed) {
-    // If user's role isn't allowed on this specific route, navigate to their primary landing page
-    if (user.role === 'prescription_employee') return <Navigate to="/prescription-slips" replace />;
-    if (user.role === 'billing_employee') return <Navigate to="/pos" replace />;
-    if (user.role === 'inventory_manager') return <Navigate to="/inventory" replace />;
-    return <Navigate to="/" replace />;
+  if (!isAuthorized) {
+    return <Navigate to={getHomeRouteForUser(user)} replace />;
   }
 
   return <>{children}</>;
 };
+
+function useMemoCheck(
+  user: { role: string } | null,
+  allowedRoles: string[] | undefined,
+  requiredPermission: keyof SubAdminPermissions | undefined,
+  hasPermission: (key: keyof SubAdminPermissions) => boolean
+): boolean {
+  if (!user) return false;
+  if (user.role === 'master_admin') return true;
+  if (requiredPermission) {
+    return hasPermission(requiredPermission);
+  }
+  if (allowedRoles) {
+    return allowedRoles.includes(user.role);
+  }
+  return true;
+}
 
 // Guard for the /change-password route: requires authentication and must_change_password
 const ChangePasswordRoute: React.FC = () => {
@@ -104,7 +116,7 @@ const ChangePasswordRoute: React.FC = () => {
 
   // If password change is not required, redirect to home
   if (!user.permissions?.must_change_password) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={getHomeRouteForUser(user)} replace />;
   }
 
   return <ChangePassword />;
@@ -145,7 +157,7 @@ export const App: React.FC = () => {
               <Route
                 index
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_dashboard">
                     <Dashboard />
                   </ProtectedRoute>
                 }
@@ -154,7 +166,7 @@ export const App: React.FC = () => {
                 path="pos"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'billing_employee']}
                     requiredPermission="access_billing"
                   >
                     <PosBilling />
@@ -165,7 +177,7 @@ export const App: React.FC = () => {
                 path="invoices"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'billing_employee']}
                     requiredPermission="view_invoices"
                   >
                     <InvoiceHistory />
@@ -176,7 +188,7 @@ export const App: React.FC = () => {
                 path="returns"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'billing_employee']}
                     requiredPermission="access_billing"
                   >
                     <Returns />
@@ -187,7 +199,7 @@ export const App: React.FC = () => {
                 path="customers"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'billing_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'billing_employee']}
                     requiredPermission="access_billing"
                   >
                     <Customers />
@@ -198,7 +210,7 @@ export const App: React.FC = () => {
                 path="prescription-slips"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'prescription_employee']}
                     requiredPermission="access_prescription_billing"
                   >
                     <PrescriptionSlipBilling />
@@ -209,7 +221,7 @@ export const App: React.FC = () => {
                 path="prescription-history"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'prescription_employee']}
+                    allowedRoles={['master_admin', 'branch_manager', 'prescription_employee']}
                     requiredPermission="view_prescription_history"
                   >
                     <PrescriptionHistory />
@@ -220,7 +232,7 @@ export const App: React.FC = () => {
                 path="doctors"
                 element={
                   <ProtectedRoute
-                    allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}
+                    allowedRoles={['master_admin', 'branch_manager']}
                     requiredPermission="manage_doctors"
                   >
                     <Doctors />
@@ -230,7 +242,7 @@ export const App: React.FC = () => {
               <Route
                 path="medicines"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'inventory_manager']} requiredPermission="manage_medicines">
                     <MedicineMaster />
                   </ProtectedRoute>
                 }
@@ -238,7 +250,7 @@ export const App: React.FC = () => {
               <Route
                 path="inventory"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager', 'inventory_manager']} requiredPermission="manage_inventory">
                     <BranchInventory />
                   </ProtectedRoute>
                 }
@@ -246,7 +258,7 @@ export const App: React.FC = () => {
               <Route
                 path="purchases"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager', 'inventory_manager']} requiredPermission="manage_inventory">
                     <Purchases />
                   </ProtectedRoute>
                 }
@@ -254,7 +266,7 @@ export const App: React.FC = () => {
               <Route
                 path="suppliers"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'inventory_manager']} requiredPermission="manage_inventory">
                     <Suppliers />
                   </ProtectedRoute>
                 }
@@ -262,7 +274,7 @@ export const App: React.FC = () => {
               <Route
                 path="stock-operations"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'inventory_manager']} requiredPermission="manage_inventory">
                     <StockOperations />
                   </ProtectedRoute>
                 }
@@ -270,7 +282,7 @@ export const App: React.FC = () => {
               <Route
                 path="low-stock"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager', 'inventory_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager', 'inventory_manager']} requiredPermission="manage_inventory">
                     <LowStock />
                   </ProtectedRoute>
                 }
@@ -278,7 +290,7 @@ export const App: React.FC = () => {
               <Route
                 path="day-book"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_reports">
                     <DayBook />
                   </ProtectedRoute>
                 }
@@ -286,7 +298,7 @@ export const App: React.FC = () => {
               <Route
                 path="day-close"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_reports">
                     <DayClose />
                   </ProtectedRoute>
                 }
@@ -294,7 +306,7 @@ export const App: React.FC = () => {
               <Route
                 path="discrepancies"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_reports">
                     <Discrepancies />
                   </ProtectedRoute>
                 }
@@ -302,7 +314,7 @@ export const App: React.FC = () => {
               <Route
                 path="analytics"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_reports">
                     <SalesAnalytics />
                   </ProtectedRoute>
                 }
@@ -310,7 +322,7 @@ export const App: React.FC = () => {
               <Route
                 path="reports"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin', 'branch_manager']}>
+                  <ProtectedRoute allowedRoles={['master_admin', 'branch_manager']} requiredPermission="view_branch_reports">
                     <Reports />
                   </ProtectedRoute>
                 }
@@ -328,7 +340,7 @@ export const App: React.FC = () => {
               <Route
                 path="staff"
                 element={
-                  <ProtectedRoute allowedRoles={['master_admin', 'sub_admin']}>
+                  <ProtectedRoute allowedRoles={['master_admin']} requiredPermission="manage_permitted_employees">
                     <StaffRoles />
                   </ProtectedRoute>
                 }

@@ -102,6 +102,7 @@ const DEFAULT_PROFILES: Profile[] = [
     email: 'admin@bajrangpharmacy.in',
     phone: '+91 9455008480',
     role: 'master_admin',
+    employee_type: 'admin',
     primary_branch_id: 'c0000000-0000-0000-0000-000000000001',
     is_active: true,
     created_at: new Date().toISOString(),
@@ -237,17 +238,29 @@ class LocalDatabaseService {
 
   public createProfile(data: Omit<Profile, 'id' | 'created_at' | 'updated_at'>): Profile {
     const profiles = this.getProfiles();
-    if (profiles.some(p => p.employee_id.toLowerCase() === data.employee_id.trim().toLowerCase())) {
-      throw new Error(`Employee ID ${data.employee_id} already exists`);
+    const cleanId = data.employee_id.trim().toLowerCase();
+    const cleanEmail = (data.email || `${cleanId}@staff.bajrangpharmacy.local`).trim().toLowerCase();
+    if (profiles.some(p => p.employee_id.toLowerCase() === cleanId)) {
+      throw new Error(`Login ID "${data.employee_id}" already exists`);
     }
-    if (profiles.some(p => p.email.toLowerCase() === data.email.trim().toLowerCase())) {
-      throw new Error(`Email ${data.email} is already registered`);
+    if (profiles.some(p => p.email.toLowerCase() === cleanEmail)) {
+      throw new Error(`Email "${cleanEmail}" is already registered`);
     }
+
+    const resolvedType =
+      data.employee_type ||
+      (data.role === 'master_admin' || data.role === 'branch_manager' || data.role === 'inventory_manager'
+        ? 'admin'
+        : data.role === 'prescription_employee' || data.permissions?.access_prescription_billing
+        ? 'parchi_billing'
+        : 'medicine_billing');
 
     const newProfile: Profile = {
       ...data,
       id: crypto.randomUUID(),
-      employee_id: data.employee_id.trim().toUpperCase(),
+      employee_id: cleanId,
+      email: cleanEmail,
+      employee_type: resolvedType,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

@@ -6,6 +6,8 @@ export type AppRole =
   | 'billing_employee'
   | 'prescription_employee';
 
+export type EmployeeType = 'admin' | 'parchi_billing' | 'medicine_billing';
+
 export type DrugSchedule = 
   | 'otc'
   | 'schedule_h'
@@ -102,6 +104,7 @@ export interface Profile {
   email: string;
   phone?: string;
   role: AppRole;
+  employee_type?: EmployeeType;
   primary_branch_id?: string;
   is_active: boolean;
   permissions?: Partial<SubAdminPermissions>;

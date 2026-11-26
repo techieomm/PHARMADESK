@@ -22,7 +22,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
-  const { user, logout } = useAuth();
+  const { user, employeeType, logout } = useAuth();
   const { branches, selectedBranchId, setSelectedBranchId } = useBranch();
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -42,13 +42,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleMobileSidebar }) => {
   }, []);
 
   const getRoleDisplayName = (role?: string) => {
+    if (role === 'master_admin') return 'Master Admin';
+    if (employeeType === 'parchi_billing' || role === 'prescription_employee') return 'Doctor / Parchi Billing';
+    if (employeeType === 'medicine_billing' || role === 'billing_employee') return 'Medicine Billing';
     switch (role) {
-      case 'master_admin': return 'Master Admin';
       case 'sub_admin': return 'Sub Admin';
       case 'branch_manager': return 'Branch Manager';
       case 'inventory_manager': return 'Inventory Manager';
-      case 'billing_employee': return 'Billing Staff';
-      case 'prescription_employee': return 'Prescription Slip Staff';
       default: return 'Staff';
     }
   };

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, getHomeRouteForUser } from '@/context/AuthContext';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { Modal } from '@/components/common/Modal';
@@ -50,15 +50,7 @@ export const Login: React.FC = () => {
         loggedProfile = await loginWithEmail(email, password);
       }
 
-      if (loggedProfile?.role === 'prescription_employee') {
-        navigate('/prescription-slips');
-      } else if (loggedProfile?.role === 'billing_employee') {
-        navigate('/pos');
-      } else if (loggedProfile?.role === 'inventory_manager') {
-        navigate('/inventory');
-      } else {
-        navigate('/');
-      }
+      navigate(getHomeRouteForUser(loggedProfile));
     } catch (err: any) {
       setError(err?.message || 'Login failed. Please check credentials.');
     } finally {
