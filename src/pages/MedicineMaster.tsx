@@ -625,12 +625,14 @@ export const MedicineMaster: React.FC = () => {
                 value={formData.gst_rate.toString()}
                 onChange={(e) => setFormData({ ...formData, gst_rate: parseFloat(e.target.value) })}
                 options={[
-                  { value: '0', label: '0% (Exempt)' },
-                  { value: '5', label: '5%' },
-                  { value: '12', label: '12% (Standard Medicines)' },
-                  { value: '18', label: '18%' },
-                  { value: '28', label: '28%' }
-                ]}
+  { value: '0', label: '0% (Exempt)' },
+  { value: '5', label: '5%' },
+  { value: '8', label: '8%' },
+  { value: '9', label: '9%' },
+  { value: '12', label: '12% (Standard Medicines)' },
+  { value: '18', label: '18%' },
+  { value: '28', label: '28%' }
+]}
               />
 
               <Input
